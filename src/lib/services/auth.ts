@@ -3,6 +3,8 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut,
   onAuthStateChanged,
@@ -54,9 +56,42 @@ export async function signInWithGoogle(): Promise<{
   user: UserProfile;
   organization: Organization | null;
 }> {
-  const cred = await signInWithPopup(auth, googleProvider);
-  let userProfile = await getUserProfile(cred.user.uid);
+  try {
+    const cred = await signInWithPopup(auth, googleProvider);
+    let userProfile = await getUserProfile(cred.user.uid);
 
+    if (!userProfile) {
+      userProfile = await createUserProfile(
+        cred.user.uid,
+        cred.user.email || "",
+        cred.user.displayName || "User",
+        cred.user.photoURL || undefined
+      );
+    }
+
+    const organization = userProfile.orgId
+      ? await getOrganization(userProfile.orgId)
+      : null;
+
+    return { user: userProfile, organization };
+  } catch (error: any) {
+    // Fallback to redirect if pop-up is blocked by browser or mobile policy
+    if (error?.code === "auth/popup-blocked" || error?.code === "auth/cancelled-popup-request") {
+      console.warn("Pop-up blocked by browser, falling back to signInWithRedirect...");
+      await signInWithRedirect(auth, googleProvider);
+    }
+    throw error;
+  }
+}
+
+export async function checkRedirectResult(): Promise<{
+  user: UserProfile;
+  organization: Organization | null;
+} | null> {
+  const cred = await getRedirectResult(auth);
+  if (!cred) return null;
+
+  let userProfile = await getUserProfile(cred.user.uid);
   if (!userProfile) {
     userProfile = await createUserProfile(
       cred.user.uid,
