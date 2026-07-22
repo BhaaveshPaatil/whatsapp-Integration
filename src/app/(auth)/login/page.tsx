@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, LoginInput } from "@/lib/validations/auth";
 import { signInWithEmail, signInWithGoogle, checkRedirectResult } from "@/lib/services/auth";
+import { useAuthStore } from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -15,6 +16,7 @@ import { gsap, useGSAP } from "@/lib/gsap";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { user: storeUser } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -34,6 +36,17 @@ export default function LoginPage() {
     },
     { scope: cardRef }
   );
+
+  // Auto-redirect if already logged in via store
+  useEffect(() => {
+    if (storeUser) {
+      if (!storeUser.orgId) {
+        router.push("/onboarding");
+      } else {
+        router.push("/dashboard");
+      }
+    }
+  }, [storeUser, router]);
 
   useEffect(() => {
     checkRedirectResult()

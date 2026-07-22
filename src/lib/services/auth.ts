@@ -12,6 +12,7 @@ import {
 } from "firebase/auth";
 import { createUserProfile, getUserProfile } from "./user";
 import { getOrganization } from "./organization";
+import { useAuthStore } from "@/store/useAuthStore";
 import { UserProfile, Organization } from "@/types";
 
 const googleProvider = new GoogleAuthProvider();
@@ -30,6 +31,7 @@ export async function signUpWithEmail(
     email,
     displayName
   );
+  useAuthStore.getState().setUser(userProfile);
   return { user: userProfile };
 }
 
@@ -52,6 +54,8 @@ export async function signInWithEmail(
     ? await getOrganization(userProfile.orgId)
     : null;
 
+  useAuthStore.getState().setUser(userProfile);
+  useAuthStore.getState().setOrganization(organization);
   return { user: userProfile, organization };
 }
 
@@ -76,9 +80,10 @@ export async function signInWithGoogle(): Promise<{
       ? await getOrganization(userProfile.orgId)
       : null;
 
+    useAuthStore.getState().setUser(userProfile);
+    useAuthStore.getState().setOrganization(organization);
     return { user: userProfile, organization };
   } catch (error: any) {
-    // Fallback to redirect if pop-up is blocked by browser or mobile policy
     if (
       error?.code === "auth/popup-blocked" ||
       error?.code === "auth/cancelled-popup-request" ||
@@ -113,6 +118,8 @@ export async function checkRedirectResult(): Promise<{
       ? await getOrganization(userProfile.orgId)
       : null;
 
+    useAuthStore.getState().setUser(userProfile);
+    useAuthStore.getState().setOrganization(organization);
     return { user: userProfile, organization };
   } catch (err) {
     console.error("Error checking redirect result:", err);
@@ -122,6 +129,7 @@ export async function checkRedirectResult(): Promise<{
 
 export async function logoutUser(): Promise<void> {
   await signOut(auth);
+  useAuthStore.getState().logout();
 }
 
 export function subscribeToAuthChanges(
