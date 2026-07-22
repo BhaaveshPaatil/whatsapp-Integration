@@ -15,6 +15,9 @@ import { getOrganization } from "./organization";
 import { UserProfile, Organization } from "@/types";
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({
+  prompt: "select_account",
+});
 
 export async function signUpWithEmail(
   displayName: string,
@@ -76,8 +79,12 @@ export async function signInWithGoogle(): Promise<{
     return { user: userProfile, organization };
   } catch (error: any) {
     // Fallback to redirect if pop-up is blocked by browser or mobile policy
-    if (error?.code === "auth/popup-blocked" || error?.code === "auth/cancelled-popup-request") {
-      console.warn("Pop-up blocked by browser, falling back to signInWithRedirect...");
+    if (
+      error?.code === "auth/popup-blocked" ||
+      error?.code === "auth/cancelled-popup-request" ||
+      error?.code === "auth/popup-closed-by-user"
+    ) {
+      console.warn("Pop-up window issue, falling back to signInWithRedirect...");
       await signInWithRedirect(auth, googleProvider);
     }
     throw error;
@@ -88,24 +95,29 @@ export async function checkRedirectResult(): Promise<{
   user: UserProfile;
   organization: Organization | null;
 } | null> {
-  const cred = await getRedirectResult(auth);
-  if (!cred) return null;
+  try {
+    const cred = await getRedirectResult(auth);
+    if (!cred) return null;
 
-  let userProfile = await getUserProfile(cred.user.uid);
-  if (!userProfile) {
-    userProfile = await createUserProfile(
-      cred.user.uid,
-      cred.user.email || "",
-      cred.user.displayName || "User",
-      cred.user.photoURL || undefined
-    );
+    let userProfile = await getUserProfile(cred.user.uid);
+    if (!userProfile) {
+      userProfile = await createUserProfile(
+        cred.user.uid,
+        cred.user.email || "",
+        cred.user.displayName || "User",
+        cred.user.photoURL || undefined
+      );
+    }
+
+    const organization = userProfile.orgId
+      ? await getOrganization(userProfile.orgId)
+      : null;
+
+    return { user: userProfile, organization };
+  } catch (err) {
+    console.error("Error checking redirect result:", err);
+    return null;
   }
-
-  const organization = userProfile.orgId
-    ? await getOrganization(userProfile.orgId)
-    : null;
-
-  return { user: userProfile, organization };
 }
 
 export async function logoutUser(): Promise<void> {

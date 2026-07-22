@@ -10,12 +10,14 @@ import { signInWithEmail, signInWithGoogle, checkRedirectResult } from "@/lib/se
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { Zap, Loader2, LogIn } from "lucide-react";
+import { Zap, Loader2, LogIn, AlertTriangle, ExternalLink, Copy, Check } from "lucide-react";
 import { gsap, useGSAP } from "@/lib/gsap";
 
 export default function LoginPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -34,7 +36,6 @@ export default function LoginPage() {
   );
 
   useEffect(() => {
-    // Check if user is returning from a Google redirect auth fallback
     checkRedirectResult()
       .then((res) => {
         if (res?.user) {
@@ -45,8 +46,16 @@ export default function LoginPage() {
           }
         }
       })
-      .catch((err) => {
-        console.error("Redirect auth error:", err);
+      .catch((err: any) => {
+        if (err?.code === "auth/unauthorized-domain") {
+          const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
+          setUnauthorizedDomain(currentHost);
+          setError(
+            `Firebase Auth is blocking domain: ${currentHost}. Add this exact domain to Firebase Authorized Domains.`
+          );
+        } else {
+          console.error("Redirect auth error:", err);
+        }
       });
   }, [router]);
 
@@ -61,6 +70,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginInput) => {
     try {
       setError(null);
+      setUnauthorizedDomain(null);
       setIsSubmitting(true);
       const { user } = await signInWithEmail(data.email, data.password);
       if (!user.orgId) {
@@ -78,6 +88,7 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     try {
       setError(null);
+      setUnauthorizedDomain(null);
       setIsSubmitting(true);
       const res = await signInWithGoogle();
       if (res?.user) {
@@ -88,13 +99,25 @@ export default function LoginPage() {
         }
       }
     } catch (err: any) {
-      if (err?.code === "auth/popup-blocked" || err?.code === "auth/cancelled-popup-request") {
+      if (err?.code === "auth/unauthorized-domain") {
+        const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
+        setUnauthorizedDomain(currentHost);
+        setError(`Firebase Auth blocked authentication on: ${currentHost}`);
+      } else if (err?.code === "auth/popup-blocked" || err?.code === "auth/cancelled-popup-request") {
         setError("Browser popup was blocked. Redirecting to Google Sign-In...");
       } else {
         setError(err?.message || "Google sign-in failed.");
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const copyDomain = () => {
+    if (unauthorizedDomain) {
+      navigator.clipboard.writeText(unauthorizedDomain);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -114,7 +137,39 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {error && (
+          {unauthorizedDomain && (
+            <div className="p-4 text-xs text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2.5 shadow-sm">
+              <div className="flex items-center space-x-2 font-semibold text-amber-600 dark:text-amber-300">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                <span>Action Required: Authorize Domain</span>
+              </div>
+              <p className="leading-relaxed text-[11px]">
+                Firebase is blocking authentication for your current Vercel URL:
+              </p>
+              <div className="flex items-center justify-between bg-background/80 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs font-mono">
+                <span className="truncate mr-2 font-bold">{unauthorizedDomain}</span>
+                <button
+                  type="button"
+                  onClick={copyDomain}
+                  className="flex items-center space-x-1 text-[10px] font-sans px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors"
+                >
+                  {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                  <span>{copied ? "Copied!" : "Copy"}</span>
+                </button>
+              </div>
+              <a
+                href="https://console.firebase.google.com/project/whatsapp-taskflow/authentication/settings"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center space-x-1.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400 hover:underline pt-1"
+              >
+                <span>Open Firebase Authorized Domains</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          )}
+
+          {error && !unauthorizedDomain && (
             <div className="p-3 text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-xl">
               {error}
             </div>
