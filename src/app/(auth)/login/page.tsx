@@ -7,19 +7,15 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, LoginInput } from "@/lib/validations/auth";
 import { signInWithEmail, signInWithGoogle, checkRedirectResult } from "@/lib/services/auth";
-import { useAuthStore } from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
-import { Zap, Loader2, LogIn, AlertTriangle, ExternalLink, Copy, Check } from "lucide-react";
+import { Zap, Loader2, LogIn, AlertTriangle } from "lucide-react";
 import { gsap, useGSAP } from "@/lib/gsap";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { user: storeUser } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
-  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -37,17 +33,6 @@ export default function LoginPage() {
     { scope: cardRef }
   );
 
-  // Auto-redirect if already logged in via store
-  useEffect(() => {
-    if (storeUser) {
-      if (!storeUser.orgId) {
-        router.push("/onboarding");
-      } else {
-        router.push("/dashboard");
-      }
-    }
-  }, [storeUser, router]);
-
   useEffect(() => {
     checkRedirectResult()
       .then((res) => {
@@ -61,10 +46,8 @@ export default function LoginPage() {
       })
       .catch((err: any) => {
         if (err?.code === "auth/unauthorized-domain") {
-          const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
-          setUnauthorizedDomain(currentHost);
           setError(
-            `Firebase Auth is blocking domain: ${currentHost}. Add this exact domain to Firebase Authorized Domains.`
+            "This domain is not authorized in Firebase Console. Please add your Vercel URL to Authentication > Settings > Authorized Domains."
           );
         } else {
           console.error("Redirect auth error:", err);
@@ -83,7 +66,6 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginInput) => {
     try {
       setError(null);
-      setUnauthorizedDomain(null);
       setIsSubmitting(true);
       const { user } = await signInWithEmail(data.email, data.password);
       if (!user.orgId) {
@@ -101,7 +83,6 @@ export default function LoginPage() {
   const handleGoogleSignIn = async () => {
     try {
       setError(null);
-      setUnauthorizedDomain(null);
       setIsSubmitting(true);
       const res = await signInWithGoogle();
       if (res?.user) {
@@ -113,9 +94,9 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       if (err?.code === "auth/unauthorized-domain") {
-        const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
-        setUnauthorizedDomain(currentHost);
-        setError(`Firebase Auth blocked authentication on: ${currentHost}`);
+        setError(
+          "Firebase Error (auth/unauthorized-domain): Your Vercel domain is not authorized. Please add it in Firebase Console -> Authentication -> Settings -> Authorized Domains."
+        );
       } else if (err?.code === "auth/popup-blocked" || err?.code === "auth/cancelled-popup-request") {
         setError("Browser popup was blocked. Redirecting to Google Sign-In...");
       } else {
@@ -123,14 +104,6 @@ export default function LoginPage() {
       }
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const copyDomain = () => {
-    if (unauthorizedDomain) {
-      navigator.clipboard.writeText(unauthorizedDomain);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -150,41 +123,13 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent className="space-y-6">
-          {unauthorizedDomain && (
-            <div className="p-4 text-xs text-amber-500 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2.5 shadow-sm">
-              <div className="flex items-center space-x-2 font-semibold text-amber-600 dark:text-amber-300">
-                <AlertTriangle className="h-4 w-4 shrink-0" />
-                <span>Action Required: Authorize Domain</span>
+          {error && (
+            <div className="p-3.5 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-xl space-y-1">
+              <div className="flex items-center space-x-2 font-semibold">
+                <AlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+                <span>Authentication Notice</span>
               </div>
-              <p className="leading-relaxed text-[11px]">
-                Firebase is blocking authentication for your current Vercel URL:
-              </p>
-              <div className="flex items-center justify-between bg-background/80 px-3 py-1.5 rounded-lg border border-amber-500/20 text-xs font-mono">
-                <span className="truncate mr-2 font-bold">{unauthorizedDomain}</span>
-                <button
-                  type="button"
-                  onClick={copyDomain}
-                  className="flex items-center space-x-1 text-[10px] font-sans px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 transition-colors"
-                >
-                  {copied ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                  <span>{copied ? "Copied!" : "Copy"}</span>
-                </button>
-              </div>
-              <a
-                href="https://console.firebase.google.com/project/whatsapp-taskflow/authentication/settings"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center space-x-1.5 text-[11px] font-semibold text-indigo-500 dark:text-indigo-400 hover:underline pt-1"
-              >
-                <span>Open Firebase Authorized Domains</span>
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          )}
-
-          {error && !unauthorizedDomain && (
-            <div className="p-3 text-xs text-rose-500 bg-rose-500/10 border border-rose-500/20 rounded-xl">
-              {error}
+              <p className="leading-relaxed">{error}</p>
             </div>
           )}
 

@@ -12,13 +12,9 @@ import {
 } from "firebase/auth";
 import { createUserProfile, getUserProfile } from "./user";
 import { getOrganization } from "./organization";
-import { useAuthStore } from "@/store/useAuthStore";
 import { UserProfile, Organization } from "@/types";
 
 const googleProvider = new GoogleAuthProvider();
-googleProvider.setCustomParameters({
-  prompt: "select_account",
-});
 
 export async function signUpWithEmail(
   displayName: string,
@@ -31,7 +27,6 @@ export async function signUpWithEmail(
     email,
     displayName
   );
-  useAuthStore.getState().setUser(userProfile);
   return { user: userProfile };
 }
 
@@ -54,8 +49,6 @@ export async function signInWithEmail(
     ? await getOrganization(userProfile.orgId)
     : null;
 
-  useAuthStore.getState().setUser(userProfile);
-  useAuthStore.getState().setOrganization(organization);
   return { user: userProfile, organization };
 }
 
@@ -80,20 +73,18 @@ export async function signInWithGoogle(): Promise<{
       ? await getOrganization(userProfile.orgId)
       : null;
 
-    useAuthStore.getState().setUser(userProfile);
-    useAuthStore.getState().setOrganization(organization);
     return { user: userProfile, organization };
   } catch (error: any) {
-    if (
-      error?.code === "auth/popup-blocked" ||
-      error?.code === "auth/cancelled-popup-request" ||
-      error?.code === "auth/popup-closed-by-user"
-    ) {
-      console.warn("Pop-up window issue, falling back to signInWithRedirect...");
-      await signInWithRedirect(auth, googleProvider);
-    }
-    throw error;
+    console.warn("Pop-up auth encountered an issue/CSP restriction. Falling back to signInWithRedirect...", error);
+    // If pop-up is blocked, closed, or encounters CSP inline script restrictions, fall back to redirect
+    await signInWithRedirect(auth, googleProvider);
+    // Return dummy promise that will be resolved upon redirect return
+    return new Promise(() => {});
   }
+}
+
+export async function signInWithGoogleRedirect(): Promise<void> {
+  await signInWithRedirect(auth, googleProvider);
 }
 
 export async function checkRedirectResult(): Promise<{
@@ -118,18 +109,15 @@ export async function checkRedirectResult(): Promise<{
       ? await getOrganization(userProfile.orgId)
       : null;
 
-    useAuthStore.getState().setUser(userProfile);
-    useAuthStore.getState().setOrganization(organization);
     return { user: userProfile, organization };
-  } catch (err) {
-    console.error("Error checking redirect result:", err);
-    return null;
+  } catch (error) {
+    console.error("Error in checkRedirectResult:", error);
+    throw error;
   }
 }
 
 export async function logoutUser(): Promise<void> {
   await signOut(auth);
-  useAuthStore.getState().logout();
 }
 
 export function subscribeToAuthChanges(
