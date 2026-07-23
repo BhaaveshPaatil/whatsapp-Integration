@@ -92,7 +92,7 @@ export default function SettingsPage() {
       )}
 
       {error && (
-        <div className="p-3 text-xs text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
+        <div className="p-3 text-xs text-red-700 dark:text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
           {error}
         </div>
       )}

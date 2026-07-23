@@ -242,7 +242,7 @@ export default function TasksPage() {
       </div>
 
       {error && (
-        <div className="p-3 text-xs text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
+        <div className="p-3 text-xs text-red-700 dark:text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
           {error}
         </div>
       )}
@@ -260,7 +260,7 @@ export default function TasksPage() {
                 "rounded-xl border px-4 py-3 text-left transition-colors",
                 isActive
                   ? "border-primary/40 bg-primary/10 text-foreground"
-                  : "border-border bg-harbor-surface/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+                  : "border-border bg-secondary/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
               )}
             >
               <span className="text-sm font-semibold">
@@ -335,7 +335,7 @@ export default function TasksPage() {
                     type="button"
                     onClick={() => handleDeleteTask(task.id)}
                     disabled={mutatingTaskId === task.id}
-                    className="text-muted-foreground hover:text-red-300 p-1 disabled:opacity-50"
+                    className="text-muted-foreground hover:text-red-700 dark:text-red-300 p-1 disabled:opacity-50"
                     aria-label="Delete task"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -348,7 +348,7 @@ export default function TasksPage() {
                 <p>{formatPriorityLabel(task.priority)}</p>
                 <p className="flex items-center gap-1.5">
                   {(task.source === "whatsapp" || task.source === "ai_extracted") && (
-                    <MessageSquare className="h-3.5 w-3.5 text-emerald-300" />
+                    <MessageSquare className="h-3.5 w-3.5 text-emerald-700 dark:text-emerald-300" />
                   )}
                   <span>{sourceLabel(task.source)}</span>
                 </p>

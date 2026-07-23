@@ -84,13 +84,13 @@ export default function AILogsPage() {
               <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
                 <div className="flex items-center space-x-2">
                   <span className="font-semibold text-primary">{log.model}</span>
-                  <span className="text-slate-500">•</span>
+                  <span className="text-muted-foreground">•</span>
                   <span className="text-muted-foreground">{timeAgo(log.createdAt)}</span>
-                  <span className="text-slate-500">•</span>
+                  <span className="text-muted-foreground">•</span>
                   <span className="text-muted-foreground">{log.latencyMs}ms</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-harbor-surfaceAlt text-muted-foreground font-semibold border border-border capitalize">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-muted text-muted-foreground font-semibold border border-border capitalize">
                     {log.outcome.replace(/_/g, " ")}
                   </span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold border border-primary/20">
@@ -99,11 +99,11 @@ export default function AILogsPage() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-harbor-surfaceAlt border border-border text-xs font-mono text-harbor-secondary">
+              <div className="p-3 rounded-xl bg-muted border border-border text-xs font-mono text-muted-foreground">
                 &quot;{log.inputText}&quot;
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl bg-harbor-surfaceAlt/70 border border-border text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-3 rounded-xl bg-muted/70 border border-border text-xs">
                 <div>
                   <span className="text-muted-foreground block text-[10px] uppercase font-semibold">
                     Intent

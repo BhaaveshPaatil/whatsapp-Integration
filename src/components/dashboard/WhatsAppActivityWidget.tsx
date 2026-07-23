@@ -53,7 +53,7 @@ export function WhatsAppActivityWidget() {
     <div className="harbor-card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <div className="p-1.5 rounded-xl bg-harbor-success/10 text-emerald-300 border border-harbor-success/20">
+          <div className="p-1.5 rounded-xl bg-harbor-success/10 text-emerald-700 dark:text-emerald-700 dark:text-emerald-700 dark:text-emerald-300 border border-harbor-success/20">
             <MessageSquare className="h-4 w-4" />
           </div>
           <h3 className="text-base font-semibold text-foreground">
@@ -74,7 +74,7 @@ export function WhatsAppActivityWidget() {
           return (
             <div
               key={msg.id}
-              className="p-4 rounded-xl bg-harbor-surfaceAlt border border-border space-y-2.5 hover:border-primary/20 transition-colors duration-200"
+              className="p-4 rounded-xl bg-muted border border-border space-y-2.5 hover:border-primary/20 transition-colors duration-200"
             >
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground font-medium">
@@ -84,7 +84,7 @@ export function WhatsAppActivityWidget() {
                   {msg.status.replace(/_/g, " ")} · {timeAgo(msg.createdAt)}
                 </span>
               </div>
-              <p className="text-xs text-harbor-secondary italic font-mono bg-harbor-bg/70 p-2.5 rounded-xl border border-border">
+              <p className="text-xs text-muted-foreground italic font-mono bg-muted/70 p-2.5 rounded-xl border border-border">
                 &quot;{msg.text || "[non-text message]"}&quot;
               </p>
               {extraction && (

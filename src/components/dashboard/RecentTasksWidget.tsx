@@ -10,24 +10,24 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
       case "urgent":
-        return "bg-harbor-danger/10 text-red-300 border-harbor-danger/25";
+        return "bg-harbor-danger/10 text-red-700 dark:text-red-300 border-harbor-danger/25";
       case "high":
-        return "bg-harbor-warning/10 text-amber-300 border-harbor-warning/25";
+        return "bg-harbor-warning/10 text-amber-700 dark:text-amber-300 border-harbor-warning/25";
       case "medium":
         return "bg-primary/10 text-primary border-primary/25";
       default:
-        return "bg-harbor-surfaceAlt text-muted-foreground border-border";
+        return "bg-muted text-muted-foreground border-border";
     }
   };
 
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
-        return "bg-harbor-success/10 text-emerald-300 border-harbor-success/25";
+        return "bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border-harbor-success/25";
       case "in_progress":
         return "bg-primary/10 text-primary border-primary/25";
       default:
-        return "bg-harbor-surfaceAlt text-muted-foreground border-border";
+        return "bg-muted text-muted-foreground border-border";
     }
   };
 
@@ -49,13 +49,13 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
           {tasks.map((task) => (
             <div
               key={task.id}
-              className="flex items-center justify-between p-4 rounded-xl bg-harbor-surfaceAlt border border-border hover:border-primary/25 transition-all duration-200"
+              className="flex items-center justify-between p-4 rounded-xl bg-muted border border-border hover:border-primary/25 transition-all duration-200"
             >
               <div className="space-y-1 max-w-md">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-foreground">{task.title}</span>
                   {task.source === "whatsapp" && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-harbor-success/10 text-emerald-300 border border-harbor-success/20 font-medium">
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border border-harbor-success/20 font-medium">
                       WhatsApp
                     </span>
                   )}

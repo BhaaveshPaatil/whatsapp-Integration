@@ -58,7 +58,7 @@ export function InviteMemberModal({ isOpen, onClose, onSubmit }: InviteMemberMod
         </div>
 
         {successMsg ? (
-          <div className="py-6 text-center space-y-2 text-emerald-300">
+          <div className="py-6 text-center space-y-2 text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="h-10 w-10 mx-auto" />
             <p className="text-sm font-semibold">Invitation Sent Successfully!</p>
           </div>
@@ -73,7 +73,7 @@ export function InviteMemberModal({ isOpen, onClose, onSubmit }: InviteMemberMod
                 className="harbor-input w-full text-sm"
               />
               {errors.email && (
-                <p className="text-xs text-red-300">{errors.email.message}</p>
+                <p className="text-xs text-red-700 dark:text-red-300">{errors.email.message}</p>
               )}
             </div>
 

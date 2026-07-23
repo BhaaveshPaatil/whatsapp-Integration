@@ -138,7 +138,7 @@ export default function TeamPage() {
       </div>
 
       {error && (
-        <div className="p-3 text-xs text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
+        <div className="p-3 text-xs text-red-700 dark:text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
           {error}
         </div>
       )}
@@ -179,7 +179,7 @@ export default function TeamPage() {
           {!isLoading && filteredMembers.map((member) => (
             <div
               key={member.id}
-              className="flex items-center justify-between py-3.5 hover:bg-harbor-surfaceAlt px-2 rounded-xl transition-colors"
+              className="flex items-center justify-between py-3.5 hover:bg-muted px-2 rounded-xl transition-colors"
             >
               <div className="flex items-center space-x-3">
                 <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-sm font-semibold text-primary">
@@ -212,7 +212,7 @@ export default function TeamPage() {
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize ${member.role === "admin"
                       ? "bg-primary/10 text-primary border-primary/30"
-                      : "bg-harbor-surfaceAlt text-harbor-secondary border-border"
+                      : "bg-muted text-muted-foreground border-border"
                       }`}
                   >
                     {member.status === "pending" ? "pending" : member.role.replace("_", " ")}
@@ -223,7 +223,7 @@ export default function TeamPage() {
                   <button
                     onClick={() => handleRemoveMember(member)}
                     disabled={mutatingMemberId === member.id}
-                    className="text-muted-foreground hover:text-red-300 p-1 transition-colors disabled:opacity-50"
+                    className="text-muted-foreground hover:text-red-700 dark:text-red-300 p-1 transition-colors disabled:opacity-50"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

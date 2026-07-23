@@ -56,7 +56,7 @@ export default function WhatsAppPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-          <MessageSquare className="h-6 w-6 text-emerald-300" />
+          <MessageSquare className="h-6 w-6 text-emerald-700 dark:text-emerald-700 dark:text-emerald-300" />
           <span>WhatsApp Business Hub</span>
         </h1>
         <p className="text-xs text-muted-foreground">
@@ -70,7 +70,7 @@ export default function WhatsAppPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">Webhook Configuration</CardTitle>
-              <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-harbor-success/10 text-emerald-300 border border-harbor-success/25">
+              <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-harbor-success/10 text-emerald-700 dark:text-emerald-700 dark:text-emerald-300 border border-harbor-success/25">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Endpoint Active</span>
               </span>
@@ -119,7 +119,7 @@ export default function WhatsAppPage() {
 
           <CardContent className="space-y-4">
             {result && (
-              <div className="p-3 text-xs text-emerald-300 bg-harbor-success/10 border border-harbor-success/25 rounded-xl flex items-center space-x-2">
+              <div className="p-3 text-xs text-emerald-700 dark:text-emerald-700 dark:text-emerald-300 bg-harbor-success/10 border border-harbor-success/25 rounded-xl flex items-center space-x-2">
                 <Sparkles className="h-4 w-4" />
                 <span>{result}</span>
               </div>

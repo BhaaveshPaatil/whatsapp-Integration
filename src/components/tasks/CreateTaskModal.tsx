@@ -97,7 +97,7 @@ export function CreateTaskModal({
               {...register("title")}
               className="harbor-input w-full text-sm"
             />
-            {errors.title && <p className="text-xs text-red-300">{errors.title.message}</p>}
+            {errors.title && <p className="text-xs text-red-700 dark:text-red-300">{errors.title.message}</p>}
           </div>
 
           <div className="space-y-1.5">

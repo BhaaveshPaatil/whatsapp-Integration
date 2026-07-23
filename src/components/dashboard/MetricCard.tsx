@@ -24,7 +24,7 @@ export function MetricCard({
     <div className="harbor-card p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/25">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">{title}</span>
-        <div className={cn("p-2 rounded-xl bg-harbor-surfaceAlt border border-border", iconColor)}>
+        <div className={cn("p-2 rounded-xl bg-muted border border-border", iconColor)}>
           <Icon className="h-5 w-5" />
         </div>
       </div>

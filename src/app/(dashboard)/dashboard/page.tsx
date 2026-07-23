@@ -86,7 +86,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-8">
       {/* Top Banner / Welcome */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-harbor-card via-harbor-surfaceAlt to-harbor-surface border border-border shadow-[0_22px_60px_-42px_rgba(0,0,0,0.9)]">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 rounded-2xl bg-gradient-to-r from-card via-secondary to-muted border border-border shadow-card">
         <div className="space-y-1">
           <div className="flex items-center space-x-2">
             <span className="text-2xl font-semibold text-foreground tracking-tight">
@@ -112,7 +112,7 @@ export default function DashboardPage() {
       </div>
 
       {error && (
-        <div className="p-3 text-xs text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
+        <div className="p-3 text-xs text-red-700 dark:text-red-300 bg-harbor-danger/10 border border-harbor-danger/25 rounded-xl">
           {error}
         </div>
       )}
