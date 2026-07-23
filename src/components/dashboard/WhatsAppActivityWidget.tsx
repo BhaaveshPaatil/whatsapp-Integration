@@ -1,63 +1,108 @@
-import { MessageSquare, Bot, ArrowUpRight, CheckCircle2 } from "lucide-react";
+"use client";
+
+import { useEffect, useState } from "react";
+import { MessageSquare, Bot } from "lucide-react";
+import { useAuthStore } from "@/store/useAuthStore";
+import {
+  subscribeToAiExtractions,
+  subscribeToWhatsAppMessages,
+} from "@/lib/services/pipelineClient";
+import type { AiExtractionRecord, InboundMessage } from "@/types";
+
+function timeAgo(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return "just now";
+  const mins = Math.floor(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export function WhatsAppActivityWidget() {
-  const dummyLogs = [
-    {
-      id: "1",
-      sender: "+1 (555) 019-2834",
-      message: "Please review the Q3 marketing budget deck by Friday 5 PM.",
-      taskTitle: "Review Q3 marketing budget deck",
-      confidence: "98%",
-      time: "10 mins ago",
-    },
-    {
-      id: "2",
-      sender: "+1 (555) 012-9981",
-      message: "Can someone fix the auth login bug reported on staging?",
-      taskTitle: "Fix auth login bug on staging",
-      confidence: "94%",
-      time: "45 mins ago",
-    },
-  ];
+  const { user } = useAuthStore();
+  const [messages, setMessages] = useState<InboundMessage[]>([]);
+  const [extractions, setExtractions] = useState<AiExtractionRecord[]>([]);
+
+  useEffect(() => {
+    if (!user?.orgId) return;
+
+    const unsubMsg = subscribeToWhatsAppMessages(
+      user.orgId,
+      setMessages,
+      () => setMessages([])
+    );
+    const unsubAi = subscribeToAiExtractions(
+      user.orgId,
+      setExtractions,
+      () => setExtractions([]),
+      20
+    );
+
+    return () => {
+      unsubMsg();
+      unsubAi();
+    };
+  }, [user?.orgId]);
+
+  const byMessage = new Map(extractions.map((e) => [e.messageId, e]));
+  const feed = messages.slice(0, 5);
 
   return (
-    <div className="glass-card rounded-xl p-5 space-y-4">
+    <div className="harbor-card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-2">
-          <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+          <div className="p-1.5 rounded-xl bg-harbor-success/10 text-emerald-300 border border-harbor-success/20">
             <MessageSquare className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-white">WhatsApp & Gemini Extraction Feed</h3>
+          <h3 className="text-base font-semibold text-foreground">
+            WhatsApp & Gemini Extraction Feed
+          </h3>
         </div>
-        <span className="text-xs text-indigo-400 hover:underline cursor-pointer">
-          Webhook Logs
-        </span>
       </div>
 
       <div className="space-y-3">
-        {dummyLogs.map((log) => (
-          <div
-            key={log.id}
-            className="p-3.5 rounded-lg bg-slate-900/60 border border-slate-800 space-y-2"
-          >
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-slate-400 font-medium">{log.sender}</span>
-              <span className="text-slate-500">{log.time}</span>
-            </div>
-            <p className="text-xs text-slate-300 italic font-mono bg-slate-950/60 p-2 rounded border border-slate-800">
-              "{log.message}"
-            </p>
-            <div className="flex items-center justify-between pt-1 text-xs">
-              <div className="flex items-center space-x-1.5 text-indigo-400">
-                <Bot className="h-3.5 w-3.5" />
-                <span className="font-medium">Auto-Extracted Task: {log.taskTitle}</span>
+        {feed.length === 0 && (
+          <p className="text-xs text-muted-foreground">
+            No inbound WhatsApp messages yet. Messages appear here after the webhook persists them.
+          </p>
+        )}
+
+        {feed.map((msg) => {
+          const extraction = byMessage.get(msg.id);
+          return (
+            <div
+              key={msg.id}
+              className="p-4 rounded-xl bg-harbor-surfaceAlt border border-border space-y-2.5 hover:border-primary/20 transition-colors duration-200"
+            >
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground font-medium">
+                  {msg.senderName || msg.sender}
+                </span>
+                <span className="text-muted-foreground capitalize">
+                  {msg.status.replace(/_/g, " ")} · {timeAgo(msg.createdAt)}
+                </span>
               </div>
-              <span className="px-2 py-0.5 rounded text-[10px] bg-indigo-500/10 text-indigo-300 font-semibold border border-indigo-500/20">
-                {log.confidence} Match
-              </span>
+              <p className="text-xs text-harbor-secondary italic font-mono bg-harbor-bg/70 p-2.5 rounded-xl border border-border">
+                &quot;{msg.text || "[non-text message]"}&quot;
+              </p>
+              {extraction && (
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <div className="flex items-center space-x-1.5 text-indigo-300">
+                    <Bot className="h-3.5 w-3.5" />
+                    <span className="font-medium">
+                      {extraction.action?.intent?.replace(/_/g, " ")}: {extraction.action?.title}
+                    </span>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-indigo-200 font-semibold border border-primary/20">
+                    {Math.round((extraction.action?.confidenceScore || 0) * 100)}% Match
+                  </span>
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

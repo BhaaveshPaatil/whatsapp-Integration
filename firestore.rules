@@ -1,0 +1,131 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userOrgId() {
+      return signedIn() ? userDoc().data.orgId : "";
+    }
+
+    function userRole() {
+      return signedIn() ? userDoc().data.role : "";
+    }
+
+    function sameOrg(orgId) {
+      return signedIn() && userOrgId() == orgId;
+    }
+
+    function orgAdmin(orgId) {
+      return sameOrg(orgId) && userRole() == "admin";
+    }
+
+    match /users/{userId} {
+      allow read: if signedIn() && (request.auth.uid == userId || sameOrg(resource.data.orgId));
+      allow create: if signedIn() && request.auth.uid == userId;
+      allow update: if signedIn() && (
+        request.auth.uid == userId ||
+        orgAdmin(resource.data.orgId) ||
+        orgAdmin(request.resource.data.orgId)
+      );
+      allow delete: if false;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if sameOrg(orgId);
+      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if orgAdmin(orgId);
+      allow delete: if false;
+    }
+
+    match /tasks/{taskId} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow create: if sameOrg(request.resource.data.orgId);
+      allow update, delete: if sameOrg(resource.data.orgId);
+    }
+
+    match /organizationInvites/{inviteId} {
+      allow read: if signedIn() && (
+        orgAdmin(resource.data.orgId) ||
+        resource.data.email == request.auth.token.email
+      );
+      allow create, update: if orgAdmin(request.resource.data.orgId);
+      allow delete: if false;
+    }
+
+    match /teams/{teamId} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow create, update, delete: if orgAdmin(request.resource.data.orgId);
+    }
+
+    // Pipeline collections: clients read; Admin SDK writes
+    match /whatsappMessages/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /whatsappConnections/{id} {
+      allow read: if orgAdmin(resource.data.orgId);
+      allow create, update: if orgAdmin(request.resource.data.orgId);
+      allow delete: if false;
+    }
+
+    match /processingQueue/{id} {
+      allow read: if orgAdmin(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /processingLogs/{id} {
+      allow read: if orgAdmin(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /aiExtractions/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /analyticsEvents/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /conversations/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /notifications/{id} {
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow create, delete: if false;
+    }
+
+    match /task_comments/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    match /webhookEvents/{id} {
+      allow read: if orgAdmin(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /auditLogs/{id} {
+      allow read: if orgAdmin(resource.data.orgId);
+      allow write: if false;
+    }
+
+    match /messageAttachments/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
+  }
+}

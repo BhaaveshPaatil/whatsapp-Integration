@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useAuthStore } from "@/store/useAuthStore";
 import { logoutUser } from "@/lib/services/auth";
 import { useRouter } from "next/navigation";
-import { Search, Bell, User, LogOut, Building, ShieldCheck } from "lucide-react";
+import { Search, Bell, User, LogOut, Building2, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ThemeSwitcherPill } from "@/components/ui/theme-toggle";
 import { CommandPalette } from "@/components/ui/command-palette";
+import { cn } from "@/lib/utils";
 
 export function Header() {
   const router = useRouter();
@@ -24,89 +25,126 @@ export function Header() {
 
   return (
     <>
-      <header className="harbor-glass-header sticky top-0 flex h-16 w-full items-center justify-between px-6 z-20 transition-colors duration-200">
-        {/* Search Bar / Command Palette Trigger */}
-        <div className="flex items-center space-x-4 flex-1 max-w-md">
+      <header className="harbor-glass-header sticky top-0 flex h-14 w-full items-center justify-between px-5 z-20">
+
+        {/* ── Search / Command Palette Trigger ──────────────────── */}
+        <div className="flex items-center flex-1 max-w-sm">
           <button
             onClick={() => setShowCommandPalette(true)}
-            className="relative w-full flex items-center justify-between rounded-xl bg-card border border-border px-3.5 py-2 text-xs text-muted-foreground hover:border-indigo-500/40 hover:text-foreground transition-all text-left shadow-sm"
+            className={cn(
+              "relative w-full flex items-center justify-between rounded-lg",
+              "bg-muted/60 border border-border",
+              "px-3 py-2 text-sm text-muted-foreground",
+              "hover:border-primary/40 hover:bg-muted hover:text-foreground",
+              "transition-all duration-150 text-left"
+            )}
           >
-            <div className="flex items-center space-x-2.5">
-              <Search className="h-4 w-4 text-muted-foreground" />
-              <span>Search tasks, team, WhatsApp logs...</span>
+            <div className="flex items-center gap-2">
+              <Search className="h-3.5 w-3.5 shrink-0" />
+              <span className="text-xs">Search or jump to...</span>
             </div>
-            <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-muted/60 px-1.5 text-[10px] font-mono text-muted-foreground">
+            <kbd className="hidden sm:inline-flex items-center gap-0.5 rounded border border-border bg-background px-1.5 text-[10px] font-mono text-muted-foreground">
               ⌘K
             </kbd>
           </button>
         </div>
 
-        {/* Right Navbar Controls */}
-        <div className="flex items-center space-x-3">
-          {/* Workspace Organization Badge */}
-          <div className="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-card border border-border text-xs">
-            <Building className="h-3.5 w-3.5 text-indigo-500 dark:text-indigo-400" />
-            <span className="font-medium text-foreground">
+        {/* ── Right Controls ─────────────────────────────────────── */}
+        <div className="flex items-center gap-2">
+
+          {/* Workspace chip */}
+          <div className="hidden md:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-muted/60 border border-border text-xs text-foreground">
+            <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="font-medium truncate max-w-[140px]">
               {organization?.name || "TaskFlow Workspace"}
             </span>
           </div>
 
-          {/* Explicit Light / Dark Theme Switcher Pill */}
+          {/* Theme switcher */}
           <ThemeSwitcherPill />
 
-          {/* Notifications Indicator */}
-          <button className="relative p-2 rounded-xl text-muted-foreground hover:bg-muted hover:text-foreground border border-transparent hover:border-border transition-all">
+          {/* Notifications */}
+          <button className={cn(
+            "relative h-8 w-8 flex items-center justify-center rounded-lg",
+            "text-muted-foreground border border-transparent",
+            "hover:bg-accent hover:text-foreground hover:border-border",
+            "transition-all duration-150"
+          )}>
             <Bell className="h-4 w-4" />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-indigo-500 ring-4 ring-background animate-pulse" />
+            <span className="absolute top-1 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
           </button>
 
-          {/* User Dropdown */}
+          {/* User dropdown */}
           <div className="relative">
             <button
               onClick={() => setShowMenu(!showMenu)}
-              className="flex items-center space-x-2 p-1 rounded-xl hover:bg-muted border border-transparent hover:border-border transition-all"
+              className={cn(
+                "flex items-center gap-2 pl-1 pr-2.5 py-1 rounded-lg",
+                "border border-transparent",
+                "hover:bg-accent hover:border-border",
+                "transition-all duration-150"
+              )}
             >
-              <div className="h-8 w-8 rounded-lg bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-500 flex items-center justify-center text-white text-xs font-semibold shadow-md shadow-indigo-500/20">
+              <div className="h-7 w-7 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-xs font-semibold shrink-0">
                 {user?.displayName ? user.displayName[0].toUpperCase() : "U"}
               </div>
+              <span className="hidden sm:block text-sm font-medium text-foreground truncate max-w-[100px]">
+                {user?.displayName?.split(" ")[0] || "User"}
+              </span>
             </button>
 
             {showMenu && (
-              <div className="absolute right-0 mt-2 w-60 rounded-2xl harbor-card bg-popover border border-border shadow-2xl py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="px-4 py-3 border-b border-border">
-                  <p className="text-xs font-semibold text-foreground">{user?.displayName || "User"}</p>
-                  <p className="text-[11px] text-muted-foreground truncate mt-0.5">{user?.email}</p>
-                  <div className="mt-2 flex items-center gap-1.5">
-                    <Badge variant="default">
-                      <ShieldCheck className="h-3 w-3" />
-                      <span className="capitalize">{user?.role}</span>
-                    </Badge>
+              <>
+                {/* Backdrop */}
+                <div className="fixed inset-0 z-40" onClick={() => setShowMenu(false)} />
+
+                {/* Dropdown */}
+                <div className="absolute right-0 mt-1.5 w-56 harbor-popover rounded-xl overflow-hidden z-50 animate-scale-in">
+                  {/* User info */}
+                  <div className="px-4 py-3 border-b border-border">
+                    <p className="text-sm font-semibold text-foreground leading-tight">
+                      {user?.displayName || "User"}
+                    </p>
+                    <p className="text-xs text-muted-foreground truncate mt-0.5">
+                      {user?.email}
+                    </p>
+                    <div className="mt-2">
+                      <Badge variant="default" dot={false}>
+                        <ShieldCheck className="h-3 w-3 mr-0.5" />
+                        <span className="capitalize">{user?.role}</span>
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Links */}
+                  <div className="py-1">
+                    <Link
+                      href="/profile"
+                      onClick={() => setShowMenu(false)}
+                      className="flex items-center gap-2.5 px-4 py-2 text-sm text-foreground hover:bg-accent transition-colors"
+                    >
+                      <User className="h-4 w-4 text-muted-foreground" />
+                      <span>My Profile</span>
+                    </Link>
+                  </div>
+
+                  <div className="border-t border-border py-1">
+                    <button
+                      onClick={handleLogout}
+                      className="flex w-full items-center gap-2.5 px-4 py-2 text-sm text-destructive hover:bg-destructive/5 transition-colors"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      <span>Sign Out</span>
+                    </button>
                   </div>
                 </div>
-
-                <Link
-                  href="/profile"
-                  onClick={() => setShowMenu(false)}
-                  className="flex items-center space-x-2 px-4 py-2.5 text-xs text-foreground hover:bg-muted transition-colors"
-                >
-                  <User className="h-4 w-4 text-indigo-500 dark:text-indigo-400" />
-                  <span>My Profile</span>
-                </Link>
-
-                <button
-                  onClick={handleLogout}
-                  className="flex w-full items-center space-x-2 px-4 py-2.5 text-xs text-rose-500 hover:bg-rose-500/10 transition-colors"
-                >
-                  <LogOut className="h-4 w-4 text-rose-500" />
-                  <span>Sign Out</span>
-                </button>
-              </div>
+              </>
             )}
           </div>
         </div>
       </header>
 
-      {/* Command Palette Modal */}
+      {/* Command Palette */}
       <CommandPalette
         isOpen={showCommandPalette}
         onClose={() => setShowCommandPalette(false)}

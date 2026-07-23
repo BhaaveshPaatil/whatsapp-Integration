@@ -12,7 +12,10 @@ export default function WhatsAppPage() {
   const [result, setResult] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const webhookUrl = "https://your-domain.com/api/whatsapp/webhook";
+  const webhookUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/api/whatsapp/webhook`
+      : "/api/whatsapp/webhook";
   const verifyToken = "taskflow_verify_token_secret";
 
   const handleCopy = () => {
@@ -23,13 +26,27 @@ export default function WhatsAppPage() {
 
   const handleSendTestMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!phone || !testMessage) return;
+    if (!testMessage) return;
 
     try {
       setIsSending(true);
       setResult(null);
-      await new Promise((res) => setTimeout(res, 1000));
-      setResult(`Simulated Task Extraction from "${testMessage}": Task title extracted cleanly!`);
+      const res = await fetch("/api/ai/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: testMessage, sender: phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setResult(data.error || "Extraction failed");
+        return;
+      }
+      const ex = data.extraction;
+      setResult(
+        `intent=${ex.intent || "create_task"} · "${ex.title}" · ${ex.priority} · confidence ${Math.round((ex.confidenceScore || 0) * 100)}%`
+      );
+    } catch {
+      setResult("Failed to reach extraction API");
     } finally {
       setIsSending(false);
     }
@@ -38,22 +55,22 @@ export default function WhatsAppPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white tracking-tight flex items-center space-x-2">
-          <MessageSquare className="h-6 w-6 text-emerald-400" />
+        <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
+          <MessageSquare className="h-6 w-6 text-emerald-300" />
           <span>WhatsApp Business Hub</span>
         </h1>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs text-muted-foreground">
           Configure real-time message webhooks, test AI extraction, and monitor communication status.
         </p>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Webhook Configuration Card */}
-        <Card className="glass-card">
+        <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="text-lg">Webhook Configuration</CardTitle>
-              <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">
+              <span className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-harbor-success/10 text-emerald-300 border border-harbor-success/25">
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 <span>Endpoint Active</span>
               </span>
@@ -65,13 +82,13 @@ export default function WhatsAppPage() {
 
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Callback URL</label>
+              <label className="text-xs font-medium text-harbor-secondary">Callback URL</label>
               <div className="flex items-center space-x-2">
                 <input
                   type="text"
                   readOnly
                   value={webhookUrl}
-                  className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-slate-300 font-mono"
+                  className="harbor-input w-full font-mono"
                 />
                 <Button size="sm" variant="outline" onClick={handleCopy}>
                   {copied ? "Copied" : <Copy className="h-3.5 w-3.5" />}
@@ -80,19 +97,19 @@ export default function WhatsAppPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Verify Token</label>
+              <label className="text-xs font-medium text-harbor-secondary">Verify Token</label>
               <input
                 type="text"
                 readOnly
                 value={verifyToken}
-                className="w-full rounded-lg bg-slate-900 border border-slate-800 px-3 py-2 text-xs text-indigo-400 font-mono"
+                className="harbor-input w-full text-indigo-200 font-mono"
               />
             </div>
           </CardContent>
         </Card>
 
         {/* Test Extraction Form */}
-        <Card className="glass-card">
+        <Card>
           <CardHeader>
             <CardTitle className="text-lg">Test WhatsApp Task Parsing</CardTitle>
             <CardDescription>
@@ -102,7 +119,7 @@ export default function WhatsAppPage() {
 
           <CardContent className="space-y-4">
             {result && (
-              <div className="p-3 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-900/50 rounded-lg flex items-center space-x-2">
+              <div className="p-3 text-xs text-emerald-300 bg-harbor-success/10 border border-harbor-success/25 rounded-xl flex items-center space-x-2">
                 <Sparkles className="h-4 w-4" />
                 <span>{result}</span>
               </div>
@@ -110,24 +127,24 @@ export default function WhatsAppPage() {
 
             <form onSubmit={handleSendTestMessage} className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Sender Phone</label>
+                <label className="text-xs font-medium text-harbor-secondary">Sender Phone</label>
                 <input
                   type="text"
                   placeholder="+1 (555) 019-2834"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="w-full rounded-lg bg-slate-900/80 border border-slate-700/80 px-3.5 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="harbor-input w-full"
                 />
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-slate-300">Message Text</label>
+                <label className="text-xs font-medium text-harbor-secondary">Message Text</label>
                 <textarea
                   rows={3}
                   placeholder="e.g. Please deploy the database hotfix before tomorrow 3 PM and assign to Alex."
                   value={testMessage}
                   onChange={(e) => setTestMessage(e.target.value)}
-                  className="w-full rounded-lg bg-slate-900/80 border border-slate-700/80 px-3.5 py-2 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  className="harbor-input w-full"
                 />
               </div>
 

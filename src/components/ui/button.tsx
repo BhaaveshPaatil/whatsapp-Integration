@@ -9,34 +9,55 @@ export interface ButtonProps
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "default", size = "default", children, ...props }, ref) => {
-    const baseStyles =
-      "inline-flex items-center justify-center gap-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.98]";
+    const base =
+      "inline-flex items-center justify-center gap-2 font-medium text-sm tracking-tight " +
+      "rounded-lg transition-all duration-150 cursor-pointer select-none " +
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background " +
+      "disabled:pointer-events-none disabled:opacity-40 active:scale-[0.98]";
 
-    const variants = {
+    const variants: Record<string, string> = {
+      /* Solid primary */
       default:
-        "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20 hover:bg-indigo-500 hover:shadow-indigo-500/30 border border-indigo-500/30",
+        "bg-primary text-primary-foreground shadow-sm " +
+        "hover:brightness-110 hover:shadow-glow-sm",
+
+      /* Gradient brand button */
       harbor:
-        "bg-gradient-to-r from-indigo-600 via-indigo-500 to-sky-500 text-white shadow-lg shadow-indigo-600/25 hover:opacity-95 hover:shadow-indigo-500/40 border border-indigo-400/30",
+        "bg-gradient-to-r from-primary to-violet-500 text-white shadow-sm " +
+        "hover:brightness-110 hover:shadow-glow-sm",
+
+      /* Muted fill */
       secondary:
-        "bg-muted text-foreground hover:bg-muted/80 border border-border shadow-sm",
+        "bg-secondary text-secondary-foreground border border-border " +
+        "hover:bg-muted hover:border-border/80",
+
+      /* Bordered, transparent fill */
       outline:
-        "border border-border bg-transparent hover:bg-muted text-foreground hover:border-indigo-500/30",
-      ghost: "hover:bg-muted text-muted-foreground hover:text-foreground",
+        "border border-border bg-transparent text-foreground " +
+        "hover:bg-accent hover:text-accent-foreground",
+
+      /* No background */
+      ghost:
+        "bg-transparent text-muted-foreground " +
+        "hover:bg-accent hover:text-foreground",
+
+      /* Danger */
       destructive:
-        "bg-rose-600 text-white hover:bg-rose-500 shadow-md shadow-rose-600/20 border border-rose-500/30",
+        "bg-destructive text-destructive-foreground shadow-sm " +
+        "hover:brightness-110",
     };
 
-    const sizes = {
-      default: "h-9 px-4 py-2",
-      sm: "h-8 px-3 text-[11px] rounded-lg",
-      lg: "h-11 px-6 text-sm rounded-xl",
-      icon: "h-9 w-9 p-0 rounded-lg",
+    const sizes: Record<string, string> = {
+      default: "h-9 px-4 py-2 text-sm",
+      sm:      "h-7 px-3 text-xs rounded-md",
+      lg:      "h-10 px-5 text-sm",
+      icon:    "h-9 w-9 p-0",
     };
 
     return (
       <button
         ref={ref}
-        className={cn(baseStyles, variants[variant], sizes[size], className)}
+        className={cn(base, variants[variant], sizes[size], className)}
         {...props}
       >
         {children}

@@ -12,9 +12,29 @@ import {
 } from "firebase/auth";
 import { createUserProfile, getUserProfile } from "./user";
 import { getOrganization } from "./organization";
+import { acceptPendingInviteForUser } from "./team";
 import { UserProfile, Organization } from "@/types";
 
 const googleProvider = new GoogleAuthProvider();
+
+async function applyPendingInvite(userProfile: UserProfile): Promise<UserProfile> {
+  if (userProfile.orgId) return userProfile;
+
+  const invite = await acceptPendingInviteForUser(
+    userProfile.email,
+    userProfile.uid,
+    userProfile.displayName
+  );
+
+  if (!invite) return userProfile;
+
+  return {
+    ...userProfile,
+    orgId: invite.orgId,
+    role: invite.role,
+    updatedAt: new Date().toISOString(),
+  };
+}
 
 export async function signUpWithEmail(
   displayName: string,
@@ -22,11 +42,12 @@ export async function signUpWithEmail(
   pass: string
 ): Promise<{ user: UserProfile }> {
   const cred = await createUserWithEmailAndPassword(auth, email, pass);
-  const userProfile = await createUserProfile(
+  let userProfile = await createUserProfile(
     cred.user.uid,
-    email,
+    email.toLowerCase(),
     displayName
   );
+  userProfile = await applyPendingInvite(userProfile);
   return { user: userProfile };
 }
 
@@ -40,10 +61,12 @@ export async function signInWithEmail(
   if (!userProfile) {
     userProfile = await createUserProfile(
       cred.user.uid,
-      cred.user.email || email,
+      (cred.user.email || email).toLowerCase(),
       cred.user.displayName || "User"
     );
   }
+
+  userProfile = await applyPendingInvite(userProfile);
 
   const organization = userProfile.orgId
     ? await getOrganization(userProfile.orgId)
@@ -63,11 +86,13 @@ export async function signInWithGoogle(): Promise<{
     if (!userProfile) {
       userProfile = await createUserProfile(
         cred.user.uid,
-        cred.user.email || "",
+        (cred.user.email || "").toLowerCase(),
         cred.user.displayName || "User",
         cred.user.photoURL || undefined
       );
     }
+
+    userProfile = await applyPendingInvite(userProfile);
 
     const organization = userProfile.orgId
       ? await getOrganization(userProfile.orgId)
@@ -99,11 +124,13 @@ export async function checkRedirectResult(): Promise<{
     if (!userProfile) {
       userProfile = await createUserProfile(
         cred.user.uid,
-        cred.user.email || "",
+        (cred.user.email || "").toLowerCase(),
         cred.user.displayName || "User",
         cred.user.photoURL || undefined
       );
     }
+
+    userProfile = await applyPendingInvite(userProfile);
 
     const organization = userProfile.orgId
       ? await getOrganization(userProfile.orgId)
@@ -137,11 +164,13 @@ export function subscribeToAuthChanges(
       if (!userProfile) {
         userProfile = await createUserProfile(
           firebaseUser.uid,
-          firebaseUser.email || "",
+          (firebaseUser.email || "").toLowerCase(),
           firebaseUser.displayName || "User",
           firebaseUser.photoURL || undefined
         );
       }
+
+      userProfile = await applyPendingInvite(userProfile);
 
       const organization = userProfile.orgId
         ? await getOrganization(userProfile.orgId)

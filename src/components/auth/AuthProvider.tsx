@@ -9,13 +9,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     setLoading(true);
+    let settled = false;
+
+    const failOpenTimeout = window.setTimeout(() => {
+      if (settled) return;
+      console.warn("Firebase auth sync timed out. Continuing without an active session.");
+      setUser(null);
+      setOrganization(null);
+      setLoading(false);
+    }, 8000);
+
     const unsubscribe = subscribeToAuthChanges((user, organization) => {
+      settled = true;
+      window.clearTimeout(failOpenTimeout);
       setUser(user);
       setOrganization(organization);
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      settled = true;
+      window.clearTimeout(failOpenTimeout);
+      unsubscribe();
+    };
   }, [setUser, setOrganization, setLoading]);
 
   return <>{children}</>;

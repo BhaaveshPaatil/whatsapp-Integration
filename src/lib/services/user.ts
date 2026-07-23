@@ -15,7 +15,7 @@ export async function createUserProfile(
 
   const newUser: UserProfile = {
     uid,
-    email,
+    email: email.toLowerCase(),
     displayName,
     role: "admin", // Default for first user creating org, will be refined in onboarding
     orgId: "",

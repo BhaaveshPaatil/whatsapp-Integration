@@ -1,5 +1,5 @@
 import { db } from "@/lib/firebase";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, setDoc, updateDoc, type Unsubscribe } from "firebase/firestore";
 import { Organization } from "@/types";
 import { updateUserProfile } from "./user";
 
@@ -43,4 +43,34 @@ export async function getOrganization(orgId: string): Promise<Organization | nul
     return snap.data() as Organization;
   }
   return null;
+}
+
+export async function updateOrganization(
+  orgId: string,
+  updates: Partial<Omit<Organization, "id" | "ownerId" | "createdAt">>
+): Promise<void> {
+  if (!orgId) return;
+  const orgRef = doc(db, ORGS_COLLECTION, orgId);
+  await updateDoc(orgRef, {
+    ...updates,
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export function subscribeToOrganization(
+  orgId: string,
+  onOrganization: (organization: Organization | null) => void,
+  onError: (error: Error) => void
+): Unsubscribe {
+  const orgRef = doc(db, ORGS_COLLECTION, orgId);
+  return onSnapshot(
+    orgRef,
+    (snapshot) => {
+      onOrganization(snapshot.exists() ? (snapshot.data() as Organization) : null);
+    },
+    (error) => {
+      console.error("Organization subscription failed:", error);
+      onError(new Error("Unable to keep organization settings in sync."));
+    }
+  );
 }

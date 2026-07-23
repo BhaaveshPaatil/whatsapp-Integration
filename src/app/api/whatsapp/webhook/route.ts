@@ -1,49 +1,113 @@
 import { NextRequest, NextResponse } from "next/server";
+import { whatsappConnector } from "@/lib/pipeline/connectors";
+import { publishEvent } from "@/lib/pipeline/events";
+import { resolveOrgIdForWhatsApp, saveInboundMessage } from "@/lib/pipeline/store";
+import { enqueueWorkerProcessing } from "@/lib/pipeline/worker";
+import { isAdminConfigured } from "@/lib/firebase-admin";
 
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN || "taskflow_verify_token_secret";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// GET: Webhook verification step required by Meta Business API
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const mode = searchParams.get("hub.mode");
-  const token = searchParams.get("hub.verify_token");
-  const challenge = searchParams.get("hub.challenge");
+  const result = await whatsappConnector.verifyWebhook!({
+    headers: req.headers,
+    rawBody: "",
+    searchParams: req.nextUrl.searchParams,
+  });
 
-  if (mode === "subscribe" && token === VERIFY_TOKEN) {
-    console.log("WhatsApp Webhook verified successfully.");
-    return new NextResponse(challenge, { status: 200 });
+  if (result.ok && result.challenge) {
+    return new NextResponse(result.challenge, { status: 200 });
   }
 
-  return new NextResponse("Forbidden: Verification token mismatch", { status: 403 });
+  return new NextResponse(result.body || "Forbidden", { status: result.status || 403 });
 }
 
-// POST: Real-time message payload receiver from WhatsApp Cloud API
+/**
+ * Webhook responsibility: validate → persist raw message → ack <500ms.
+ * AI and task creation run asynchronously via /api/workers/process-message.
+ */
 export async function POST(req: NextRequest) {
+  const rawBody = await req.text();
+
+  const verified = await whatsappConnector.verifyWebhook!({
+    headers: req.headers,
+    rawBody,
+    searchParams: req.nextUrl.searchParams,
+  });
+
+  if (!verified.ok) {
+    return new NextResponse(verified.body || "Unauthorized", {
+      status: verified.status || 401,
+    });
+  }
+
+  let body: unknown;
   try {
-    const body = await req.json();
+    body = JSON.parse(rawBody);
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
 
-    // Check if body is a WhatsApp message event
-    if (body.object === "whatsapp_business_account") {
-      const entry = body.entry?.[0];
-      const changes = entry?.changes?.[0];
-      const value = changes?.value;
-      const message = value?.messages?.[0];
+  const normalized = whatsappConnector.normalize(body);
+  if (normalized.length === 0) {
+    return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
+  }
 
-      if (message) {
-        const fromPhone = message.from;
-        const textBody = message.text?.body || "";
+  if (!isAdminConfigured()) {
+    console.warn(
+      "FIREBASE_SERVICE_ACCOUNT_JSON not set — acknowledging webhook without persistence."
+    );
+    console.log(
+      "Inbound WhatsApp messages:",
+      normalized.map((m) => ({ from: m.sender, text: m.text, id: m.externalId }))
+    );
+    return NextResponse.json({ status: "EVENT_RECEIVED", persisted: false }, { status: 200 });
+  }
 
-        console.log(`Received WhatsApp message from ${fromPhone}: "${textBody}"`);
+  try {
+    const origin = req.nextUrl.origin;
+    const accepted: string[] = [];
 
-        // Trigger AI extraction logic or queueing here
+    for (const item of normalized) {
+      const orgId = await resolveOrgIdForWhatsApp(item.phoneNumberId);
+      if (!orgId) {
+        console.warn("No org mapped for WhatsApp phone_number_id", item.phoneNumberId);
+        continue;
       }
 
-      return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
+      const { message, queueItem, isDuplicate } = await saveInboundMessage(orgId, item);
+
+      await publishEvent({
+        orgId,
+        type: isDuplicate ? "duplicate_detected" : "message_received",
+        messageId: message.id,
+        meta: {
+          source: "whatsapp",
+          sender: message.sender,
+          externalId: message.externalId,
+        },
+      });
+
+      if (!isDuplicate && queueItem.id) {
+        await publishEvent({
+          orgId,
+          type: "message_queued",
+          messageId: message.id,
+          meta: { queueId: queueItem.id },
+        });
+        enqueueWorkerProcessing(queueItem.id, origin);
+        accepted.push(queueItem.id);
+      }
     }
 
-    return NextResponse.json({ status: "NOT_WHATSAPP_EVENT" }, { status: 404 });
+    return NextResponse.json(
+      { status: "EVENT_RECEIVED", queued: accepted.length },
+      { status: 200 }
+    );
   } catch (error) {
-    console.error("Error processing WhatsApp webhook payload:", error);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+    console.error("Webhook persistence error:", error);
+    // Still 200 to avoid Meta retry storms when our infra is down mid-write;
+    // message may be lost — prefer alerting over duplicate AI work.
+    return NextResponse.json({ status: "EVENT_RECEIVED", error: "persist_failed" }, { status: 200 });
   }
 }

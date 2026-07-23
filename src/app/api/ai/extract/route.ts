@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { extractTaskFromText } from "@/lib/services/gemini";
+import { extractStructuredAction } from "@/lib/services/gemini";
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Text prompt is required" }, { status: 400 });
     }
 
-    const extraction = await extractTaskFromText(text);
+    const extraction = await extractStructuredAction(text);
     return NextResponse.json({ success: true, extraction }, { status: 200 });
   } catch (error) {
     console.error("Error in AI extraction endpoint:", error);
