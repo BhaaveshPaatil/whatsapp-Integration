@@ -24,6 +24,19 @@ export type AuthSession = {
   organization: Organization | null;
 };
 
+function provisionalProfile(firebaseUser: FirebaseUser): UserProfile {
+  return {
+    uid: firebaseUser.uid,
+    email: (firebaseUser.email || "").toLowerCase(),
+    displayName: firebaseUser.displayName || "User",
+    role: "admin",
+    orgId: "",
+    photoURL: firebaseUser.photoURL || "",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 /**
  * Resolve Firestore profile for an authenticated Firebase user.
  * Intentionally does NOT touch organizationInvites — that query historically
@@ -42,9 +55,15 @@ async function resolveSession(firebaseUser: FirebaseUser): Promise<AuthSession> 
     );
   }
 
-  const organization = userProfile.orgId
-    ? await getOrganization(userProfile.orgId)
-    : null;
+  let organization: Organization | null = null;
+  if (userProfile.orgId) {
+    try {
+      organization = await getOrganization(userProfile.orgId);
+    } catch (error) {
+      // Never wipe the profile if org read fails (rules/network).
+      console.warn("Organization fetch failed during auth sync:", error);
+    }
+  }
 
   return { user: userProfile, organization };
 }
@@ -53,7 +72,7 @@ function postAuthPath(user: UserProfile): "/onboarding" | "/dashboard" {
   return user.orgId ? "/dashboard" : "/onboarding";
 }
 
-export { postAuthPath };
+export { postAuthPath, provisionalProfile };
 
 /** Apply pending org invite after login (non-blocking if it fails). */
 export async function syncPendingInviteAfterAuth(
@@ -164,24 +183,17 @@ export function subscribeToAuthChanges(
       return;
     }
 
+    // Soft-hydrate immediately so dashboard/nav never bounce to /login
+    // while Firestore profile is still loading.
+    onAuthChange(provisionalProfile(firebaseUser), null);
+
     try {
       const session = await resolveSession(firebaseUser);
       onAuthChange(session.user, session.organization);
     } catch (error) {
       console.error("Error fetching user profile during auth sync:", error);
-      onAuthChange(
-        {
-          uid: firebaseUser.uid,
-          email: (firebaseUser.email || "").toLowerCase(),
-          displayName: firebaseUser.displayName || "User",
-          role: "admin",
-          orgId: "",
-          photoURL: firebaseUser.photoURL || "",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        },
-        null
-      );
+      // Keep a usable session from Firebase Auth — do not clear to null.
+      onAuthChange(provisionalProfile(firebaseUser), null);
     }
   });
 }

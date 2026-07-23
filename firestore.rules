@@ -38,7 +38,9 @@ service cloud.firestore {
     }
 
     match /organizations/{orgId} {
-      allow read: if sameOrg(orgId);
+      // Members of the org, or the owner (covers race right after create).
+      allow read: if sameOrg(orgId) ||
+        (signedIn() && resource.data.ownerId == request.auth.uid);
       allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
       allow update: if orgAdmin(orgId);
       allow delete: if false;

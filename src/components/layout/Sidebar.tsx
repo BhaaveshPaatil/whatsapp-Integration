@@ -43,7 +43,7 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        "relative flex flex-col harbor-sidebar transition-all duration-300 z-30",
+        "relative flex flex-col harbor-sidebar transition-all duration-300 z-30 shrink-0",
         "shadow-[1px_0_0_0_hsl(var(--sidebar-border))]",
         collapsed ? "w-[68px]" : "w-60"
       )}

@@ -1,8 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
+import { auth } from "@/lib/firebase";
 import { useAuthStore } from "@/store/useAuthStore";
-import { subscribeToAuthChanges } from "@/lib/services/auth";
+import {
+  provisionalProfile,
+  subscribeToAuthChanges,
+} from "@/lib/services/auth";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { setUser, setOrganization, setLoading } = useAuthStore();
@@ -13,19 +17,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const failOpenTimeout = window.setTimeout(() => {
       if (settled) return;
-      console.warn("Firebase auth sync timed out. Continuing without an active session.");
-      // Do not clear an already-set session from a successful login race.
+
       const current = useAuthStore.getState().user;
-      if (!current) {
+      const firebaseUser = auth.currentUser;
+
+      // Never mark logged-out while Firebase still has a session.
+      if (!current && firebaseUser) {
+        console.warn(
+          "Auth profile sync timed out; continuing with Firebase session."
+        );
+        setUser(provisionalProfile(firebaseUser));
+        setLoading(false);
+        return;
+      }
+
+      if (!current && !firebaseUser) {
+        console.warn(
+          "Firebase auth sync timed out. Continuing without an active session."
+        );
         setUser(null);
         setOrganization(null);
+        setLoading(false);
+        return;
       }
+
       setLoading(false);
     }, 12000);
 
     const unsubscribe = subscribeToAuthChanges((user, organization) => {
       settled = true;
       window.clearTimeout(failOpenTimeout);
+
+      // Avoid clobbering a richer in-memory session with an empty provisional
+      // when Firebase briefly re-emits during navigation / token refresh.
+      const current = useAuthStore.getState().user;
+      if (
+        user &&
+        current &&
+        current.uid === user.uid &&
+        current.orgId &&
+        !user.orgId
+      ) {
+        setLoading(false);
+        return;
+      }
+
       setUser(user);
       setOrganization(organization);
       setLoading(false);

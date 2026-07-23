@@ -15,7 +15,7 @@ import Link from "next/link";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const { user, organization, setUser, logout } = useAuthStore();
+  const { user, organization, setUser, logout, isLoading } = useAuthStore();
   const [message, setMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -60,6 +60,14 @@ export default function ProfilePage() {
     logout();
     router.push("/login");
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-4 text-muted-foreground">
+        <p>Loading profile…</p>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
