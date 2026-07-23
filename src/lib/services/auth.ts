@@ -12,61 +12,35 @@ import {
 } from "firebase/auth";
 import { createUserProfile, getUserProfile } from "./user";
 import { getOrganization } from "./organization";
-import { acceptPendingInviteForUser } from "./team";
 import { UserProfile, Organization } from "@/types";
 
 const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: "select_account" });
+googleProvider.addScope("email");
+googleProvider.addScope("profile");
 
-async function applyPendingInvite(userProfile: UserProfile): Promise<UserProfile> {
-  if (userProfile.orgId) return userProfile;
+export type AuthSession = {
+  user: UserProfile;
+  organization: Organization | null;
+};
 
-  const invite = await acceptPendingInviteForUser(
-    userProfile.email,
-    userProfile.uid,
-    userProfile.displayName
-  );
-
-  if (!invite) return userProfile;
-
-  return {
-    ...userProfile,
-    orgId: invite.orgId,
-    role: invite.role,
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-export async function signUpWithEmail(
-  displayName: string,
-  email: string,
-  pass: string
-): Promise<{ user: UserProfile }> {
-  const cred = await createUserWithEmailAndPassword(auth, email, pass);
-  let userProfile = await createUserProfile(
-    cred.user.uid,
-    email.toLowerCase(),
-    displayName
-  );
-  userProfile = await applyPendingInvite(userProfile);
-  return { user: userProfile };
-}
-
-export async function signInWithEmail(
-  email: string,
-  pass: string
-): Promise<{ user: UserProfile; organization: Organization | null }> {
-  const cred = await signInWithEmailAndPassword(auth, email, pass);
-  let userProfile = await getUserProfile(cred.user.uid);
+/**
+ * Resolve Firestore profile for an authenticated Firebase user.
+ * Intentionally does NOT touch organizationInvites — that query historically
+ * required a composite index and blocked Google login. Invites are applied
+ * after sign-in via `syncPendingInviteAfterAuth`.
+ */
+async function resolveSession(firebaseUser: FirebaseUser): Promise<AuthSession> {
+  let userProfile = await getUserProfile(firebaseUser.uid);
 
   if (!userProfile) {
     userProfile = await createUserProfile(
-      cred.user.uid,
-      (cred.user.email || email).toLowerCase(),
-      cred.user.displayName || "User"
+      firebaseUser.uid,
+      (firebaseUser.email || "").toLowerCase(),
+      firebaseUser.displayName || "User",
+      firebaseUser.photoURL || undefined
     );
   }
-
-  userProfile = await applyPendingInvite(userProfile);
 
   const organization = userProfile.orgId
     ? await getOrganization(userProfile.orgId)
@@ -75,36 +49,87 @@ export async function signInWithEmail(
   return { user: userProfile, organization };
 }
 
-export async function signInWithGoogle(): Promise<{
-  user: UserProfile;
-  organization: Organization | null;
-}> {
+function postAuthPath(user: UserProfile): "/onboarding" | "/dashboard" {
+  return user.orgId ? "/dashboard" : "/onboarding";
+}
+
+export { postAuthPath };
+
+/** Apply pending org invite after login (non-blocking if it fails). */
+export async function syncPendingInviteAfterAuth(
+  user: UserProfile
+): Promise<AuthSession | null> {
+  if (user.orgId) return null;
+
+  try {
+    const { acceptPendingInviteForUser } = await import("./team");
+    const invite = await acceptPendingInviteForUser(
+      user.email,
+      user.uid,
+      user.displayName
+    );
+    if (!invite) return null;
+
+    const updated: UserProfile = {
+      ...user,
+      orgId: invite.orgId,
+      role: invite.role,
+      updatedAt: new Date().toISOString(),
+    };
+    const organization = await getOrganization(invite.orgId);
+    return { user: updated, organization };
+  } catch (error) {
+    console.warn("Pending invite sync skipped:", error);
+    return null;
+  }
+}
+
+export async function signUpWithEmail(
+  displayName: string,
+  email: string,
+  pass: string
+): Promise<AuthSession> {
+  const cred = await createUserWithEmailAndPassword(auth, email, pass);
+  const userProfile = await createUserProfile(
+    cred.user.uid,
+    email.toLowerCase(),
+    displayName
+  );
+  return { user: userProfile, organization: null };
+}
+
+export async function signInWithEmail(
+  email: string,
+  pass: string
+): Promise<AuthSession> {
+  const cred = await signInWithEmailAndPassword(auth, email, pass);
+  return resolveSession(cred.user);
+}
+
+export async function signInWithGoogle(): Promise<AuthSession> {
   try {
     const cred = await signInWithPopup(auth, googleProvider);
-    let userProfile = await getUserProfile(cred.user.uid);
+    return await resolveSession(cred.user);
+  } catch (error: unknown) {
+    const code =
+      typeof error === "object" && error && "code" in error
+        ? String((error as { code?: string }).code)
+        : "";
 
-    if (!userProfile) {
-      userProfile = await createUserProfile(
-        cred.user.uid,
-        (cred.user.email || "").toLowerCase(),
-        cred.user.displayName || "User",
-        cred.user.photoURL || undefined
-      );
+    if (
+      code === "auth/popup-blocked" ||
+      code === "auth/cancelled-popup-request" ||
+      code === "auth/operation-not-supported-in-this-environment"
+    ) {
+      await signInWithRedirect(auth, googleProvider);
+      return new Promise(() => {});
     }
 
-    userProfile = await applyPendingInvite(userProfile);
+    if (code === "auth/popup-closed-by-user" || code === "auth/user-cancelled") {
+      throw error;
+    }
 
-    const organization = userProfile.orgId
-      ? await getOrganization(userProfile.orgId)
-      : null;
-
-    return { user: userProfile, organization };
-  } catch (error: any) {
-    console.warn("Pop-up auth encountered an issue/CSP restriction. Falling back to signInWithRedirect...", error);
-    // If pop-up is blocked, closed, or encounters CSP inline script restrictions, fall back to redirect
-    await signInWithRedirect(auth, googleProvider);
-    // Return dummy promise that will be resolved upon redirect return
-    return new Promise(() => {});
+    throw error;
   }
 }
 
@@ -112,31 +137,11 @@ export async function signInWithGoogleRedirect(): Promise<void> {
   await signInWithRedirect(auth, googleProvider);
 }
 
-export async function checkRedirectResult(): Promise<{
-  user: UserProfile;
-  organization: Organization | null;
-} | null> {
+export async function checkRedirectResult(): Promise<AuthSession | null> {
   try {
     const cred = await getRedirectResult(auth);
-    if (!cred) return null;
-
-    let userProfile = await getUserProfile(cred.user.uid);
-    if (!userProfile) {
-      userProfile = await createUserProfile(
-        cred.user.uid,
-        (cred.user.email || "").toLowerCase(),
-        cred.user.displayName || "User",
-        cred.user.photoURL || undefined
-      );
-    }
-
-    userProfile = await applyPendingInvite(userProfile);
-
-    const organization = userProfile.orgId
-      ? await getOrganization(userProfile.orgId)
-      : null;
-
-    return { user: userProfile, organization };
+    if (!cred?.user) return null;
+    return await resolveSession(cred.user);
   } catch (error) {
     console.error("Error in checkRedirectResult:", error);
     throw error;
@@ -160,26 +165,23 @@ export function subscribeToAuthChanges(
     }
 
     try {
-      let userProfile = await getUserProfile(firebaseUser.uid);
-      if (!userProfile) {
-        userProfile = await createUserProfile(
-          firebaseUser.uid,
-          (firebaseUser.email || "").toLowerCase(),
-          firebaseUser.displayName || "User",
-          firebaseUser.photoURL || undefined
-        );
-      }
-
-      userProfile = await applyPendingInvite(userProfile);
-
-      const organization = userProfile.orgId
-        ? await getOrganization(userProfile.orgId)
-        : null;
-
-      onAuthChange(userProfile, organization);
+      const session = await resolveSession(firebaseUser);
+      onAuthChange(session.user, session.organization);
     } catch (error) {
       console.error("Error fetching user profile during auth sync:", error);
-      onAuthChange(null, null);
+      onAuthChange(
+        {
+          uid: firebaseUser.uid,
+          email: (firebaseUser.email || "").toLowerCase(),
+          displayName: firebaseUser.displayName || "User",
+          role: "admin",
+          orgId: "",
+          photoURL: firebaseUser.photoURL || "",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        null
+      );
     }
   });
 }

@@ -14,10 +14,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const failOpenTimeout = window.setTimeout(() => {
       if (settled) return;
       console.warn("Firebase auth sync timed out. Continuing without an active session.");
-      setUser(null);
-      setOrganization(null);
+      // Do not clear an already-set session from a successful login race.
+      const current = useAuthStore.getState().user;
+      if (!current) {
+        setUser(null);
+        setOrganization(null);
+      }
       setLoading(false);
-    }, 8000);
+    }, 12000);
 
     const unsubscribe = subscribeToAuthChanges((user, organization) => {
       settled = true;

@@ -6,17 +6,57 @@ import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { registerSchema, RegisterInput } from "@/lib/validations/auth";
-import { signUpWithEmail, signInWithGoogle, checkRedirectResult } from "@/lib/services/auth";
+import {
+  signUpWithEmail,
+  signInWithGoogle,
+  checkRedirectResult,
+  postAuthPath,
+  syncPendingInviteAfterAuth,
+  type AuthSession,
+} from "@/lib/services/auth";
+import { useAuthStore } from "@/store/useAuthStore";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { Zap, Loader2, UserPlus, AlertTriangle } from "lucide-react";
 import { gsap, useGSAP } from "@/lib/gsap";
 
+function authErrorMessage(err: unknown): string | null {
+  const code =
+    typeof err === "object" && err && "code" in err
+      ? String((err as { code?: string }).code)
+      : "";
+  const message =
+    typeof err === "object" && err && "message" in err
+      ? String((err as { message?: string }).message)
+      : "Google sign-in failed.";
+
+  if (
+    code === "failed-precondition" ||
+    /requires an index/i.test(message) ||
+    /create_composite/i.test(message)
+  ) {
+    return null;
+  }
+
+  if (code === "auth/unauthorized-domain") {
+    return "This domain is not authorized in Firebase Console. Add it under Authentication → Settings → Authorized Domains.";
+  }
+  if (code === "auth/popup-closed-by-user" || code === "auth/user-cancelled") {
+    return "Google sign-in was cancelled. Choose an account to continue.";
+  }
+  if (code === "auth/account-exists-with-different-credential") {
+    return "An account already exists with this email using a different sign-in method.";
+  }
+  return message;
+}
+
 export default function RegisterPage() {
   const router = useRouter();
+  const { user, isLoading, setUser, setOrganization, setLoading } = useAuthStore();
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [checkingRedirect, setCheckingRedirect] = useState(true);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useGSAP(
@@ -34,26 +74,36 @@ export default function RegisterPage() {
   );
 
   useEffect(() => {
-    checkRedirectResult()
-      .then((res) => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await checkRedirectResult();
+        if (cancelled) return;
         if (res?.user) {
-          if (!res.user.orgId) {
-            router.push("/onboarding");
-          } else {
-            router.push("/dashboard");
-          }
+          setUser(res.user);
+          setOrganization(res.organization);
+          setLoading(false);
+          router.replace(postAuthPath(res.user));
+          return;
         }
-      })
-      .catch((err: any) => {
-        if (err?.code === "auth/unauthorized-domain") {
-          setError(
-            "This domain is not authorized in Firebase Console. Please add your Vercel URL to Authentication > Settings > Authorized Domains."
-          );
-        } else {
-          console.error("Redirect auth error:", err);
-        }
-      });
-  }, [router]);
+      } catch (err) {
+        const msg = authErrorMessage(err);
+        if (!cancelled && msg) setError(msg);
+      } finally {
+        if (!cancelled) setCheckingRedirect(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, setUser, setOrganization, setLoading]);
+
+  useEffect(() => {
+    if (checkingRedirect || isLoading || isSubmitting) return;
+    if (user) router.replace(postAuthPath(user));
+  }, [checkingRedirect, isLoading, isSubmitting, user, router]);
 
   const {
     register,
@@ -63,14 +113,28 @@ export default function RegisterPage() {
     resolver: zodResolver(registerSchema),
   });
 
+  const completeSignIn = async (session: AuthSession) => {
+    let next = session;
+    try {
+      const invited = await syncPendingInviteAfterAuth(session.user);
+      if (invited) next = invited;
+    } catch {
+      // ignore
+    }
+    setUser(next.user);
+    setOrganization(next.organization);
+    setLoading(false);
+    router.replace(postAuthPath(next.user));
+  };
+
   const onSubmit = async (data: RegisterInput) => {
     try {
       setError(null);
       setIsSubmitting(true);
-      await signUpWithEmail(data.displayName, data.email, data.password);
-      router.push("/onboarding");
-    } catch (err: any) {
-      setError(err?.message || "Registration failed. Please try again.");
+      const session = await signUpWithEmail(data.displayName, data.email, data.password);
+      await completeSignIn(session);
+    } catch (err) {
+      setError(authErrorMessage(err) || "Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -80,28 +144,17 @@ export default function RegisterPage() {
     try {
       setError(null);
       setIsSubmitting(true);
-      const res = await signInWithGoogle();
-      if (res?.user) {
-        if (!res.user.orgId) {
-          router.push("/onboarding");
-        } else {
-          router.push("/dashboard");
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === "auth/unauthorized-domain") {
-        setError(
-          "Firebase Error (auth/unauthorized-domain): Your Vercel domain is not authorized. Please add it in Firebase Console -> Authentication -> Settings -> Authorized Domains."
-        );
-      } else if (err?.code === "auth/popup-blocked" || err?.code === "auth/cancelled-popup-request") {
-        setError("Browser popup was blocked. Redirecting to Google Sign-In...");
-      } else {
-        setError(err?.message || "Google sign-in failed.");
-      }
+      const session = await signInWithGoogle();
+      if (session?.user) await completeSignIn(session);
+    } catch (err) {
+      const msg = authErrorMessage(err);
+      if (msg) setError(msg);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const busy = isSubmitting || checkingRedirect || (isLoading && !user);
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4 bg-background text-foreground transition-colors duration-200 relative">
@@ -115,7 +168,9 @@ export default function RegisterPage() {
             <Zap className="h-6 w-6 text-white" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight">Create Account</CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">Get started with TaskFlow AI in seconds</CardDescription>
+          <CardDescription className="text-xs text-muted-foreground">
+            Get started with TaskFlow AI in seconds
+          </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-6">
@@ -182,7 +237,7 @@ export default function RegisterPage() {
               )}
             </div>
 
-            <Button type="submit" variant="harbor" className="w-full" disabled={isSubmitting}>
+            <Button type="submit" variant="harbor" className="w-full" disabled={busy}>
               {isSubmitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -196,21 +251,23 @@ export default function RegisterPage() {
 
           <div className="relative flex items-center justify-center my-4">
             <div className="border-t border-border w-full" />
-            <span className="bg-card px-3 text-[10px] text-muted-foreground uppercase tracking-wider absolute">OR</span>
+            <span className="bg-card px-3 text-[10px] text-muted-foreground uppercase tracking-wider absolute">
+              OR
+            </span>
           </div>
 
           <Button
             variant="secondary"
             onClick={handleGoogleSignIn}
-            disabled={isSubmitting}
+            disabled={busy}
             className="w-full"
           >
-            Sign up with Google
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign up with Google"}
           </Button>
 
           <p className="text-center text-xs text-muted-foreground mt-4">
             Already have an account?{" "}
-            <Link href="/register" className="text-indigo-500 dark:text-indigo-400 hover:underline">
+            <Link href="/login" className="text-indigo-500 dark:text-indigo-400 hover:underline">
               Sign In
             </Link>
           </p>

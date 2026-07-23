@@ -5,7 +5,6 @@ import {
   getDocs,
   limit,
   onSnapshot,
-  orderBy,
   query,
   setDoc,
   updateDoc,
@@ -67,12 +66,10 @@ export async function inviteOrganizationMember(input: {
     where("email", "==", email),
     limit(1)
   );
+  // Avoid composite indexes: filter org + status client-side
   const existingInviteQuery = query(
     collection(db, INVITES_COLLECTION),
-    where("orgId", "==", input.orgId),
-    where("email", "==", email),
-    where("status", "==", "pending"),
-    limit(1)
+    where("email", "==", email)
   );
 
   const [existingUsers, existingInvites] = await Promise.all([
@@ -85,7 +82,10 @@ export async function inviteOrganizationMember(input: {
     throw new Error("This user is already a member of your organization.");
   }
 
-  const existingInviteDoc = existingInvites.docs[0];
+  const existingInviteDoc = existingInvites.docs.find((inviteDoc) => {
+    const data = inviteDoc.data() as OrganizationInvite;
+    return data.orgId === input.orgId && data.status === "pending";
+  });
   if (existingInviteDoc) {
     return { id: existingInviteDoc.id, ...existingInviteDoc.data() } as OrganizationInvite;
   }
@@ -112,18 +112,20 @@ export async function acceptPendingInviteForUser(
   uid: string,
   displayName: string
 ): Promise<OrganizationInvite | null> {
+  // Single-field query only — no composite index required for login.
   const invitesQuery = query(
     collection(db, INVITES_COLLECTION),
-    where("email", "==", normalizeEmail(email)),
-    where("status", "==", "pending"),
-    orderBy("createdAt", "desc"),
-    limit(1)
+    where("email", "==", normalizeEmail(email))
   );
   const snapshot = await getDocs(invitesQuery);
-  const inviteDoc = snapshot.docs[0];
-  if (!inviteDoc) return null;
+  const pending = snapshot.docs
+    .map((inviteDoc) => ({ id: inviteDoc.id, ...inviteDoc.data() }) as OrganizationInvite)
+    .filter((invite) => invite.status === "pending")
+    .sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
 
-  const invite = { id: inviteDoc.id, ...inviteDoc.data() } as OrganizationInvite;
+  const invite = pending[0];
+  if (!invite) return null;
+
   const now = new Date().toISOString();
   const batch = writeBatch(db);
 
@@ -172,10 +174,10 @@ export function subscribeToOrganizationTeam(
   onError: (error: Error) => void
 ): Unsubscribe {
   const usersQuery = query(collection(db, USERS_COLLECTION), where("orgId", "==", orgId));
+  // Single equality filter — pending status filtered client-side (no composite index)
   const invitesQuery = query(
     collection(db, INVITES_COLLECTION),
-    where("orgId", "==", orgId),
-    where("status", "==", "pending")
+    where("orgId", "==", orgId)
   );
 
   let activeMembers: TeamMember[] = [];
@@ -202,9 +204,10 @@ export function subscribeToOrganizationTeam(
   const unsubscribeInvites = onSnapshot(
     invitesQuery,
     (snapshot) => {
-      pendingMembers = snapshot.docs.map((inviteDoc) =>
-        mapInviteToMember({ id: inviteDoc.id, ...inviteDoc.data() } as OrganizationInvite)
-      );
+      pendingMembers = snapshot.docs
+        .map((inviteDoc) => ({ id: inviteDoc.id, ...inviteDoc.data() }) as OrganizationInvite)
+        .filter((invite) => invite.status === "pending")
+        .map(mapInviteToMember);
       emit();
     },
     (error: FirestoreError) => {
