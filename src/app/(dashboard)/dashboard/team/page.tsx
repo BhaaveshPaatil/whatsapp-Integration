@@ -121,7 +121,7 @@ export default function TeamPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-            <Users className="h-6 w-6 text-indigo-300" />
+            <Users className="h-6 w-6 text-primary" />
             <span>Team & Members</span>
           </h1>
           <p className="text-xs text-muted-foreground">
@@ -162,10 +162,10 @@ export default function TeamPage() {
           </span>
         </div>
 
-        <div className="divide-y divide-slate-800/80">
+        <div className="divide-y divide-border">
           {isLoading && (
             <div className="py-8 flex items-center justify-center text-muted-foreground text-xs">
-              <Loader2 className="h-4 w-4 animate-spin mr-2 text-indigo-300" />
+              <Loader2 className="h-4 w-4 animate-spin mr-2 text-primary" />
               Loading team members...
             </div>
           )}
@@ -182,7 +182,7 @@ export default function TeamPage() {
               className="flex items-center justify-between py-3.5 hover:bg-harbor-surfaceAlt px-2 rounded-xl transition-colors"
             >
               <div className="flex items-center space-x-3">
-                <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-sm font-semibold text-indigo-200">
+                <div className="h-10 w-10 rounded-xl bg-primary/10 border border-primary/25 flex items-center justify-center text-sm font-semibold text-primary">
                   {member.displayName ? member.displayName[0].toUpperCase() : "U"}
                 </div>
                 <div>
@@ -201,7 +201,7 @@ export default function TeamPage() {
                     disabled={mutatingMemberId === member.id}
                     onChange={(event) => handleRoleChange(member, event.target.value as UserRole)}
                     className={`px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize bg-transparent focus:outline-none ${member.role === "admin"
-                      ? "text-indigo-400 border-indigo-500/30"
+                      ? "text-primary border-primary/30"
                       : "text-harbor-secondary border-border"
                       }`}
                   >
@@ -211,7 +211,7 @@ export default function TeamPage() {
                 ) : (
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-xs font-medium border capitalize ${member.role === "admin"
-                      ? "bg-indigo-500/10 text-indigo-400 border-indigo-500/30"
+                      ? "bg-primary/10 text-primary border-primary/30"
                       : "bg-harbor-surfaceAlt text-harbor-secondary border-border"
                       }`}
                   >

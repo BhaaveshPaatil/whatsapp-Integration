@@ -92,7 +92,7 @@ export default function DashboardPage() {
             <span className="text-2xl font-semibold text-foreground tracking-tight">
               Welcome back, {user?.displayName || "Admin"}! 👋
             </span>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-indigo-200 border border-primary/25 capitalize">
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary border border-primary/25 capitalize">
               {user?.role}
             </span>
           </div>
@@ -125,7 +125,7 @@ export default function DashboardPage() {
           change={`${stats.activeTasks} active`}
           isPositive={true}
           icon={CheckSquare}
-          iconColor="text-indigo-400"
+          iconColor="text-primary"
           subtext="Active tasks across teams"
         />
 
@@ -155,7 +155,7 @@ export default function DashboardPage() {
           change={`${stats.totalTasks ? Math.round((stats.whatsappTasks / stats.totalTasks) * 100) : 0}%`}
           isPositive={true}
           icon={MessageSquare}
-          iconColor="text-purple-400"
+          iconColor="text-primary"
           subtext="Messages converted to tasks"
         />
       </div>

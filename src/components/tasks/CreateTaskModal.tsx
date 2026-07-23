@@ -74,7 +74,7 @@ export function CreateTaskModal({
       <div className="w-full max-w-lg harbor-popover rounded-2xl p-6 border border-border space-y-5 shadow-2xl">
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center space-x-2">
-            <CheckSquare className="h-5 w-5 text-indigo-300" />
+            <CheckSquare className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">
               {task ? "Edit Task" : "Create New Task"}
             </h3>

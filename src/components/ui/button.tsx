@@ -19,12 +19,12 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       /* Solid primary */
       default:
         "bg-primary text-primary-foreground shadow-sm " +
-        "hover:brightness-110 hover:shadow-glow-sm",
+        "hover:brightness-110",
 
-      /* Gradient brand button */
+      /* Brand button — teal depth, no violet */
       harbor:
-        "bg-gradient-to-r from-primary to-violet-500 text-white shadow-sm " +
-        "hover:brightness-110 hover:shadow-glow-sm",
+        "bg-gradient-to-r from-primary to-primary-400 text-white shadow-sm " +
+        "hover:brightness-110",
 
       /* Muted fill */
       secondary:

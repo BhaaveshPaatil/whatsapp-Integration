@@ -76,7 +76,7 @@ export default function SettingsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-          <Settings className="h-6 w-6 text-indigo-300" />
+          <Settings className="h-6 w-6 text-primary" />
           <span>Organization & API Settings</span>
         </h1>
         <p className="text-xs text-muted-foreground">
@@ -102,7 +102,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center space-x-2">
-              <Building className="h-5 w-5 text-indigo-400" />
+              <Building className="h-5 w-5 text-primary" />
               <CardTitle className="text-base">Organization Profile</CardTitle>
             </div>
             <CardDescription>General workspace parameters and naming</CardDescription>
@@ -158,7 +158,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center space-x-2">
-              <Bot className="h-5 w-5 text-purple-400" />
+              <Bot className="h-5 w-5 text-primary" />
               <CardTitle className="text-base">Gemini AI Key & Model Config</CardTitle>
             </div>
             <CardDescription>Google Gemini API Key for Task Extraction NLP</CardDescription>

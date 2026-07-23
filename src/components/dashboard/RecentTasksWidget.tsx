@@ -14,7 +14,7 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
       case "high":
         return "bg-harbor-warning/10 text-amber-300 border-harbor-warning/25";
       case "medium":
-        return "bg-primary/10 text-indigo-200 border-primary/25";
+        return "bg-primary/10 text-primary border-primary/25";
       default:
         return "bg-harbor-surfaceAlt text-muted-foreground border-border";
     }
@@ -25,7 +25,7 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
       case "completed":
         return "bg-harbor-success/10 text-emerald-300 border-harbor-success/25";
       case "in_progress":
-        return "bg-primary/10 text-indigo-200 border-primary/25";
+        return "bg-primary/10 text-primary border-primary/25";
       default:
         return "bg-harbor-surfaceAlt text-muted-foreground border-border";
     }
@@ -35,7 +35,7 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
     <div className="harbor-card p-5 space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="text-base font-semibold text-foreground">Recent Team Tasks</h3>
-        <span className="text-xs text-indigo-300 hover:text-indigo-200 cursor-pointer transition-colors">
+        <span className="text-xs text-primary hover:text-primary cursor-pointer transition-colors">
           View All Tasks
         </span>
       </div>

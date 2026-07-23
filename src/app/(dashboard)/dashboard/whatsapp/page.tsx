@@ -102,7 +102,7 @@ export default function WhatsAppPage() {
                 type="text"
                 readOnly
                 value={verifyToken}
-                className="harbor-input w-full text-indigo-200 font-mono"
+                className="harbor-input w-full text-primary font-mono"
               />
             </div>
           </CardContent>

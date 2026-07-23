@@ -164,15 +164,15 @@ export default function LoginPage() {
   const busy = isSubmitting || checkingRedirect || (isLoading && !user);
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-background text-foreground transition-colors duration-200 relative">
+    <div className="tf-atmosphere flex min-h-screen items-center justify-center p-4 text-foreground transition-colors duration-200 relative">
       <div className="absolute top-4 right-4">
         <ThemeToggle />
       </div>
 
       <Card ref={cardRef} className="w-full max-w-md harbor-card">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-sky-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 border border-indigo-400/30 mb-2">
-            <Zap className="h-6 w-6 text-white" />
+          <div className="mx-auto h-12 w-12 rounded-2xl bg-primary flex items-center justify-center shadow-sm mb-2">
+            <Zap className="h-6 w-6 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl font-bold tracking-tight">Welcome Back</CardTitle>
           <CardDescription className="text-xs text-muted-foreground">
@@ -198,7 +198,7 @@ export default function LoginPage() {
                 type="email"
                 placeholder="name@organization.com"
                 {...register("email")}
-                className="w-full rounded-xl bg-card border border-border px-3.5 py-2.5 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-indigo-500/50"
+                className="w-full rounded-xl bg-card border border-border px-3.5 py-2.5 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
               />
               {errors.email && (
                 <p className="text-[11px] text-rose-500">{errors.email.message}</p>
@@ -211,7 +211,7 @@ export default function LoginPage() {
                 type="password"
                 placeholder="••••••••"
                 {...register("password")}
-                className="w-full rounded-xl bg-card border border-border px-3.5 py-2.5 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-indigo-500/50"
+                className="w-full rounded-xl bg-card border border-border px-3.5 py-2.5 text-xs text-foreground placeholder-muted-foreground focus:outline-none focus:border-primary/50"
               />
               {errors.password && (
                 <p className="text-[11px] text-rose-500">{errors.password.message}</p>
@@ -252,7 +252,7 @@ export default function LoginPage() {
 
           <p className="text-center text-xs text-muted-foreground mt-4">
             Don&apos;t have an account?{" "}
-            <Link href="/register" className="text-indigo-500 dark:text-indigo-400 hover:underline">
+            <Link href="/register" className="text-primary hover:underline">
               Create one now
             </Link>
           </p>

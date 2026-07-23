@@ -63,28 +63,28 @@ export default function ProfilePage() {
 
   if (!user) {
     return (
-      <div className="flex min-h-screen items-center justify-center p-4 text-slate-400">
+      <div className="flex min-h-screen items-center justify-center p-4 text-muted-foreground">
         <p>Please sign in to view your profile.</p>
       </div>
     );
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-lg glass-panel border-slate-800">
+    <div className="tf-atmosphere flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-lg harbor-card border-border">
         <CardHeader className="space-y-2">
           <div className="flex items-center justify-between">
-            <Link href="/dashboard" className="text-xs text-indigo-400 hover:underline flex items-center space-x-1">
+            <Link href="/dashboard" className="text-xs text-primary hover:underline flex items-center space-x-1">
               <ArrowLeft className="h-3.5 w-3.5" />
               <span>Back to Dashboard</span>
             </Link>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 uppercase tracking-wider">
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/30 uppercase tracking-wider">
               {user.role === "admin" ? "Admin" : "Team Member"}
             </span>
           </div>
 
           <div className="flex items-center space-x-4 pt-2">
-            <div className="h-14 w-14 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-xl font-bold text-indigo-400">
+            <div className="h-14 w-14 rounded-full bg-muted border border-border flex items-center justify-center text-xl font-bold text-primary">
               {user.displayName ? user.displayName[0].toUpperCase() : <User />}
             </div>
             <div>
@@ -102,13 +102,13 @@ export default function ProfilePage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-900/60 border border-slate-800">
+          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-muted/60 border border-border">
             <div className="space-y-1">
               <span className="text-xs text-slate-500 flex items-center space-x-1">
                 <Building className="h-3.5 w-3.5" />
                 <span>Organization</span>
               </span>
-              <p className="text-sm font-medium text-slate-200">
+              <p className="text-sm font-medium text-foreground">
                 {organization?.name || "Not assigned"}
               </p>
             </div>
@@ -118,7 +118,7 @@ export default function ProfilePage() {
                 <Shield className="h-3.5 w-3.5" />
                 <span>Role</span>
               </span>
-              <p className="text-sm font-medium text-slate-200 capitalize">
+              <p className="text-sm font-medium text-foreground capitalize">
                 {user.role}
               </p>
             </div>
@@ -126,11 +126,11 @@ export default function ProfilePage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Display Name</label>
+              <label className="text-xs font-medium text-muted-foreground">Display Name</label>
               <input
                 type="text"
                 {...register("displayName")}
-                className="w-full rounded-lg bg-slate-900/80 border border-slate-700/80 px-3.5 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg bg-input border border-border px-3.5 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
               {errors.displayName && (
                 <p className="text-xs text-red-400">{errors.displayName.message}</p>
@@ -138,14 +138,14 @@ export default function ProfilePage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">
+              <label className="text-xs font-medium text-muted-foreground">
                 Phone Number (WhatsApp Sync)
               </label>
               <input
                 type="text"
                 placeholder="+1234567890"
                 {...register("phoneNumber")}
-                className="w-full rounded-lg bg-slate-900/80 border border-slate-700/80 px-3.5 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg bg-input border border-border px-3.5 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
 

@@ -15,8 +15,8 @@ module.exports = {
     extend: {
       /* ── Fonts ─────────────────────────────────────────────────── */
       fontFamily: {
-        sans: ["Inter", "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ["JetBrains Mono", "Fira Code", "ui-monospace", "monospace"],
+        sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ["var(--font-mono)", "JetBrains Mono", "ui-monospace", "monospace"],
       },
 
       /* ── Design Token Colors (all via CSS vars) ─────────────────── */
@@ -30,16 +30,16 @@ module.exports = {
         primary: {
           DEFAULT:    "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
-          50:  "hsl(239 100% 97%)",
-          100: "hsl(239 100% 92%)",
-          200: "hsl(239 85% 82%)",
-          300: "hsl(239 78% 72%)",
-          400: "hsl(239 72% 62%)",
-          500: "hsl(239 68% 56%)",
-          600: "hsl(239 65% 48%)",
-          700: "hsl(239 65% 40%)",
-          800: "hsl(239 65% 32%)",
-          900: "hsl(239 65% 22%)",
+          50:  "hsl(168 60% 96%)",
+          100: "hsl(168 55% 90%)",
+          200: "hsl(168 50% 78%)",
+          300: "hsl(168 55% 58%)",
+          400: "hsl(168 65% 45%)",
+          500: "hsl(168 76% 36%)",
+          600: "hsl(168 78% 30%)",
+          700: "hsl(168 78% 24%)",
+          800: "hsl(168 70% 18%)",
+          900: "hsl(168 65% 12%)",
         },
         secondary: {
           DEFAULT:    "hsl(var(--secondary))",
@@ -81,21 +81,22 @@ module.exports = {
 
         /* ── Static Brand Palette (for direct use) ──────────────── */
         harbor: {
-          /* Dark mode surfaces */
-          bg:           "#0C0E18",
-          surface:      "#121520",
-          surfaceAlt:   "#171B26",
-          card:         "#191D2C",
-          border:       "#232836",
-          /* Light mode surfaces */
-          lightBg:      "#F4F5F7",
+          /* Dark mode surfaces — charcoal, not indigo navy */
+          bg:           "#121614",
+          surface:      "#181C1A",
+          surfaceAlt:   "#1E2421",
+          card:         "#222A26",
+          border:       "#2C3530",
+          /* Light mode surfaces — cool mint-gray */
+          lightBg:      "#F5F8F7",
           lightCard:    "#FFFFFF",
-          lightBorder:  "#E2E4EC",
-          /* Status */
-          success:  "#13C9AA",
+          lightBorder:  "#DCE5E1",
+          /* Status / brand */
+          success:  "#0D9B82",
           warning:  "#F89A00",
           danger:   "#D63031",
-          info:     "#4F52D8",
+          info:     "#0D9B82",
+          secondary: "#5C6B64",
         },
       },
 
@@ -119,9 +120,9 @@ module.exports = {
         "card-dark":       "0 1px 2px hsl(0 0% 0% / 0.3), 0 4px 12px hsl(0 0% 0% / 0.25)",
         "card-hover-dark": "0 2px 8px hsl(0 0% 0% / 0.4), 0 8px 24px hsl(0 0% 0% / 0.3)",
         "popover-dark":    "0 4px 6px hsl(0 0% 0% / 0.3), 0 16px 48px hsl(0 0% 0% / 0.5)",
-        /* Glow effects */
+        /* Glow effects — soft teal, not purple neon */
         "glow-primary": "0 0 0 3px hsl(var(--primary) / 0.15)",
-        "glow-sm":      "0 0 12px hsl(var(--primary) / 0.25)",
+        "glow-sm":      "0 0 12px hsl(var(--primary) / 0.2)",
       },
 
       /* ── Typography ────────────────────────────────────────────── */

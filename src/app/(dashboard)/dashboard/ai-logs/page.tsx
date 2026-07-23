@@ -51,7 +51,7 @@ export default function AILogsPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-            <Bot className="h-6 w-6 text-indigo-300" />
+            <Bot className="h-6 w-6 text-primary" />
             <span>AI Extraction Telemetry & Logs</span>
           </h1>
           <p className="text-xs text-muted-foreground">
@@ -60,7 +60,7 @@ export default function AILogsPage() {
         </div>
 
         <div className="flex items-center space-x-2">
-          <span className="px-3 py-1 rounded-full text-xs font-medium bg-primary/10 text-indigo-200 border border-primary/25 flex items-center space-x-1.5">
+          <span className="px-3 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary border border-primary/25 flex items-center space-x-1.5">
             <Cpu className="h-3.5 w-3.5" />
             <span>Pipeline Worker</span>
           </span>
@@ -83,7 +83,7 @@ export default function AILogsPage() {
             <div key={log.id} className="py-4 space-y-3">
               <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
                 <div className="flex items-center space-x-2">
-                  <span className="font-semibold text-indigo-300">{log.model}</span>
+                  <span className="font-semibold text-primary">{log.model}</span>
                   <span className="text-slate-500">•</span>
                   <span className="text-muted-foreground">{timeAgo(log.createdAt)}</span>
                   <span className="text-slate-500">•</span>
@@ -93,7 +93,7 @@ export default function AILogsPage() {
                   <span className="px-2 py-0.5 rounded-full text-[10px] bg-harbor-surfaceAlt text-muted-foreground font-semibold border border-border capitalize">
                     {log.outcome.replace(/_/g, " ")}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-indigo-200 font-semibold border border-primary/20">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold border border-primary/20">
                     {Math.round((log.action?.confidenceScore || 0) * 100)}% Confidence
                   </span>
                 </div>

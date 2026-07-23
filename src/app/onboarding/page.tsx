@@ -97,11 +97,11 @@ export default function OnboardingPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4">
-      <Card className="w-full max-w-lg glass-panel border-slate-800">
+    <div className="tf-atmosphere flex min-h-screen items-center justify-center p-4">
+      <Card className="w-full max-w-lg harbor-card border-border">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto h-14 w-14 rounded-2xl bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 mb-2">
-            <Building2 className="h-7 w-7 text-white" />
+          <div className="mx-auto h-14 w-14 rounded-2xl bg-primary flex items-center justify-center shadow-sm mb-2">
+            <Building2 className="h-7 w-7 text-primary-foreground" />
           </div>
           <CardTitle className="text-2xl font-bold">Create Your Organization</CardTitle>
           <CardDescription>
@@ -119,22 +119,22 @@ export default function OnboardingPage() {
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Organization Name</label>
+              <label className="text-xs font-medium text-muted-foreground">Organization Name</label>
               <input
                 type="text"
                 placeholder="Acme Corp, TechStart, Enterprise Studio..."
                 {...register("name")}
-                className="w-full rounded-lg bg-slate-900/80 border border-slate-700/80 px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg bg-input border border-border px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
               />
               {errors.name && <p className="text-xs text-red-400">{errors.name.message}</p>}
             </div>
 
-            <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-2">
-              <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold">
+            <div className="p-4 rounded-xl bg-muted/60 border border-border space-y-2">
+              <div className="flex items-center space-x-2 text-primary text-xs font-semibold">
                 <Sparkles className="h-4 w-4" />
                 <span>Admin Role Privileges Included</span>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
+              <p className="text-xs text-muted-foreground leading-relaxed">
                 As the organization creator, you will automatically receive full Admin permissions
                 to manage users, team roles, AI extractions, and WhatsApp integration settings.
               </p>

@@ -17,7 +17,7 @@ export function MetricCard({
   change,
   isPositive = true,
   icon: Icon,
-  iconColor = "text-indigo-400",
+  iconColor = "text-primary",
   subtext,
 }: MetricCardProps) {
   return (
@@ -36,8 +36,8 @@ export function MetricCard({
             className={cn(
               "text-xs font-semibold px-2 py-0.5 rounded-full",
               isPositive
-                ? "bg-harbor-success/10 text-emerald-300 border border-harbor-success/20"
-                : "bg-harbor-danger/10 text-red-300 border border-harbor-danger/20"
+                ? "bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border border-harbor-success/20"
+                : "bg-harbor-danger/10 text-red-700 dark:text-red-300 border border-harbor-danger/20"
             )}
           >
             {change}

@@ -74,11 +74,11 @@ export default function AnalyticsPage() {
     );
     const aiPct = Math.round((ai / (ai + manualProxy || 1)) * 100);
     return [
-      { name: "WhatsApp AI Auto", value: aiPct || (ai > 0 ? 100 : 0), color: "#818cf8" },
+      { name: "WhatsApp AI Auto", value: aiPct || (ai > 0 ? 100 : 0), color: "#0D9B82" },
       {
         name: "Other / Manual",
         value: 100 - (aiPct || (ai > 0 ? 100 : 0)),
-        color: "#34d399",
+        color: "#5C6B64",
       },
     ];
   }, [events]);
@@ -116,7 +116,7 @@ export default function AnalyticsPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-          <BarChart3 className="h-6 w-6 text-indigo-300" />
+          <BarChart3 className="h-6 w-6 text-primary" />
           <span>Productivity & Pipeline Analytics</span>
         </h1>
         <p className="text-xs text-muted-foreground">
@@ -150,8 +150,8 @@ export default function AnalyticsPage() {
               <AreaChart data={weeklyData}>
                 <defs>
                   <linearGradient id="colorTasks" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#0D9B82" stopOpacity={0.4} />
+                    <stop offset="95%" stopColor="#0D9B82" stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="day" stroke="#64748b" fontSize={11} />
@@ -164,7 +164,7 @@ export default function AnalyticsPage() {
                   }}
                 />
                 <Area type="monotone" dataKey="messages" stroke="#34d399" fillOpacity={0.1} fill="#34d399" />
-                <Area type="monotone" dataKey="tasks" stroke="#818cf8" fillOpacity={1} fill="url(#colorTasks)" />
+                <Area type="monotone" dataKey="tasks" stroke="#0D9B82" fillOpacity={1} fill="url(#colorTasks)" />
                 <Area type="monotone" dataKey="completed" stroke="#fbbf24" fillOpacity={0.1} fill="#fbbf24" />
               </AreaChart>
             </ResponsiveContainer>

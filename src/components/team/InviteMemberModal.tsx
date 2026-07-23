@@ -49,7 +49,7 @@ export function InviteMemberModal({ isOpen, onClose, onSubmit }: InviteMemberMod
       <div className="w-full max-w-md harbor-popover rounded-2xl p-6 border border-border space-y-5 shadow-2xl">
         <div className="flex items-center justify-between border-b border-border pb-3">
           <div className="flex items-center space-x-2">
-            <UserPlus className="h-5 w-5 text-indigo-300" />
+            <UserPlus className="h-5 w-5 text-primary" />
             <h3 className="text-lg font-semibold text-foreground">Invite Team Member</h3>
           </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">

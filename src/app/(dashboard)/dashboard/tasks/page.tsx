@@ -227,7 +227,7 @@ export default function TasksPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
-            <CheckSquare className="h-6 w-6 text-indigo-300" />
+            <CheckSquare className="h-6 w-6 text-primary" />
             <span>Task Management</span>
           </h1>
           <p className="text-xs text-muted-foreground">
@@ -301,7 +301,7 @@ export default function TasksPage() {
 
       {isLoading ? (
         <div className="harbor-card p-8 flex items-center justify-center text-xs text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin mr-2 text-indigo-300" />
+          <Loader2 className="h-4 w-4 animate-spin mr-2 text-primary" />
           Loading tasks...
         </div>
       ) : (
@@ -326,7 +326,7 @@ export default function TasksPage() {
                   <button
                     type="button"
                     onClick={() => openEditModal(task)}
-                    className="text-muted-foreground hover:text-indigo-300 p-1"
+                    className="text-muted-foreground hover:text-primary p-1"
                     aria-label="Edit task"
                   >
                     <Edit2 className="h-3.5 w-3.5" />

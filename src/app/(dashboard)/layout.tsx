@@ -6,7 +6,6 @@ import { useAuthStore } from "@/store/useAuthStore";
 import { isAdminRoute, isOrgAdmin } from "@/lib/rbac";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
-import { Zap } from "lucide-react";
 
 export default function DashboardLayout({
   children,
@@ -47,11 +46,9 @@ export default function DashboardLayout({
   if (!user) return null;
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground transition-colors duration-250">
-      {/* Sidebar */}
+    <div className="flex min-h-screen bg-background text-foreground transition-colors duration-250 tf-dashboard-canvas">
       <Sidebar />
 
-      {/* Main area */}
       <div className="flex flex-1 flex-col overflow-hidden">
         <Header />
         <main className="flex-1 overflow-y-auto p-6 md:p-8">

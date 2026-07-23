@@ -89,13 +89,13 @@ export function WhatsAppActivityWidget() {
               </p>
               {extraction && (
                 <div className="flex items-center justify-between pt-1 text-xs">
-                  <div className="flex items-center space-x-1.5 text-indigo-300">
+                  <div className="flex items-center space-x-1.5 text-primary">
                     <Bot className="h-3.5 w-3.5" />
                     <span className="font-medium">
                       {extraction.action?.intent?.replace(/_/g, " ")}: {extraction.action?.title}
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-indigo-200 font-semibold border border-primary/20">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold border border-primary/20">
                     {Math.round((extraction.action?.confidenceScore || 0) * 100)}% Match
                   </span>
                 </div>

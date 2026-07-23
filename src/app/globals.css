@@ -3,112 +3,102 @@
 @tailwind utilities;
 
 /* ====================================================================
-   TASKFLOW AI — PROFESSIONAL DESIGN SYSTEM
-   Inspired by: Linear, Vercel, Notion, Stripe Dashboard
-   Font:        Inter (Google Fonts)
-   Approach:    CSS custom properties for full light/dark theming
+   TASKFLOW AI — DESIGN SYSTEM
+   Font:        Plus Jakarta Sans + JetBrains Mono
+   Brand:       Teal-emerald (WhatsApp-adjacent)
+   Approach:    Light-first hybrid theming via CSS variables
    ==================================================================== */
 
 @layer base {
 
-  /* ── LIGHT MODE ──────────────────────────────────────────────────── */
+  /* ── LIGHT MODE (default) ───────────────────────────────────────── */
   :root {
-    /* Page */
-    --background:          220 20% 97%;       /* #F4F5F7 — off-white, not stark white */
-    --foreground:          224 32% 12%;       /* #131929 — near-black, readable */
+    /* Page — cool mint-gray canvas */
+    --background:          150 12% 97%;
+    --foreground:          160 18% 12%;
 
-    /* Surface layers (card, popover, input) */
-    --card:                0 0% 100%;         /* #FFFFFF — clean white card */
-    --card-foreground:     224 32% 12%;
+    /* Surface layers */
+    --card:                0 0% 100%;
+    --card-foreground:     160 18% 12%;
     --popover:             0 0% 100%;
-    --popover-foreground:  224 32% 12%;
-    --input:               0 0% 100%;         /* #FFFFFF — white input bg */
+    --popover-foreground:  160 18% 12%;
+    --input:               0 0% 100%;
 
-    /* Brand / Primary — Indigo */
-    --primary:             239 68% 56%;       /* #4F52D8 */
+    /* Brand / Primary — teal-emerald */
+    --primary:             168 76% 36%;
     --primary-foreground:  0 0% 100%;
 
     /* Secondary surface */
-    --secondary:           220 20% 94%;       /* #ECEDF2 */
-    --secondary-foreground: 224 32% 28%;
+    --secondary:           150 10% 94%;
+    --secondary-foreground: 160 12% 28%;
 
-    /* Muted surface & text */
-    --muted:               220 20% 94%;       /* #ECEDF2 */
-    --muted-foreground:    220 14% 52%;       /* #7A8196 */
+    /* Muted */
+    --muted:               150 10% 94%;
+    --muted-foreground:    160 8% 42%;
 
     /* Accent */
-    --accent:              220 20% 94%;
-    --accent-foreground:   224 32% 12%;
+    --accent:              150 12% 93%;
+    --accent-foreground:   160 18% 12%;
 
     /* Destructive */
-    --destructive:         0 72% 51%;         /* #D63031 */
+    --destructive:         0 72% 51%;
     --destructive-foreground: 0 0% 100%;
 
     /* Borders */
-    --border:              220 16% 90%;       /* #E2E4EC */
-    --ring:                239 68% 56%;       /* matches primary */
+    --border:              150 12% 88%;
+    --ring:                168 76% 36%;
 
     /* Sidebar */
-    --sidebar:             0 0% 100%;         /* white sidebar */
-    --sidebar-border:      220 16% 90%;
+    --sidebar:             0 0% 100%;
+    --sidebar-border:      150 12% 88%;
 
-    /* Charts (Indigo Harbor palette) */
-    --chart-1:             239 68% 56%;       /* #4F52D8 — primary */
-    --chart-2:             168 78% 35%;       /* #13C9AA — teal */
-    --chart-3:             32 95% 50%;        /* #F89A00 — amber */
-    --chart-4:             0 72% 51%;         /* #D63031 — red */
-    --chart-5:             271 62% 55%;       /* #7C3AED — violet */
+    /* Charts */
+    --chart-1:             168 76% 36%;
+    --chart-2:             168 55% 48%;
+    --chart-3:             32 95% 50%;
+    --chart-4:             0 72% 51%;
+    --chart-5:             200 60% 42%;
 
-    --radius:              0.5rem;            /* 8px — tighter, modern */
+    --radius:              0.5rem;
   }
 
-  /* ── DARK MODE ───────────────────────────────────────────────────── */
+  /* ── DARK MODE — charcoal, teal ambient only ────────────────────── */
   .dark {
-    /* Page */
-    --background:          228 28% 7%;        /* #0C0E18 — deep navy-black */
-    --foreground:          220 22% 93%;       /* #E8EAF2 — soft white */
+    --background:          160 8% 8%;
+    --foreground:          150 10% 93%;
 
-    /* Surface layers */
-    --card:                228 24% 10%;       /* #121520 — elevated dark */
-    --card-foreground:     220 22% 93%;
-    --popover:             228 26% 9%;        /* #0F1119 */
-    --popover-foreground:  220 22% 93%;
-    --input:               228 22% 13%;       /* #171B26 */
+    --card:                160 8% 11%;
+    --card-foreground:     150 10% 93%;
+    --popover:             160 8% 10%;
+    --popover-foreground:  150 10% 93%;
+    --input:               160 8% 13%;
 
-    /* Brand / Primary — slightly brightened for dark */
-    --primary:             239 72% 65%;       /* #6468E8 */
+    --primary:             168 70% 45%;
     --primary-foreground:  0 0% 100%;
 
-    /* Secondary surface */
-    --secondary:           228 22% 14%;       /* #191D2C */
-    --secondary-foreground: 220 22% 80%;
+    --secondary:           160 8% 14%;
+    --secondary-foreground: 150 8% 80%;
 
-    /* Muted */
-    --muted:               228 22% 14%;       /* #191D2C */
-    --muted-foreground:    220 14% 52%;       /* #7A8196 */
+    --muted:               160 8% 14%;
+    --muted-foreground:    150 6% 55%;
 
-    /* Accent */
-    --accent:              228 22% 16%;       /* #1C2130 */
-    --accent-foreground:   220 22% 93%;
+    --accent:              160 8% 16%;
+    --accent-foreground:   150 10% 93%;
 
-    /* Destructive */
     --destructive:         0 62% 48%;
     --destructive-foreground: 0 0% 100%;
 
-    /* Borders */
-    --border:              228 20% 18%;       /* #232836 — subtle divider */
-    --ring:                239 72% 65%;       /* matches primary */
+    --border:              160 8% 18%;
+    --ring:                168 70% 45%;
 
-    /* Sidebar */
-    --sidebar:             228 26% 9%;        /* slightly darker than card */
-    --sidebar-border:      228 20% 18%;
+    --sidebar:             160 8% 9%;
+    --sidebar-border:      160 8% 18%;
 
-    /* Charts (same hues, slightly brighter for dark) */
-    --chart-1:             239 72% 65%;
-    --chart-2:             168 78% 43%;
+    --chart-1:             168 70% 45%;
+    --chart-2:             168 60% 55%;
     --chart-3:             32 95% 60%;
     --chart-4:             0 72% 60%;
-    --chart-5:             271 62% 65%;
+    --chart-5:             200 55% 55%;
   }
 }
 
@@ -133,24 +123,28 @@
     color: hsl(var(--foreground));
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
     font-size: 14px;
-    line-height: 1.6;
+    line-height: 1.55;
     transition: background-color 0.25s ease, color 0.25s ease;
     min-height: 100vh;
   }
 
-  /* Light body — clean neutral */
+  /* Light — subtle teal wash + faint grid */
   body {
-    background-color: hsl(var(--background));
+    background-image:
+      radial-gradient(ellipse 90% 55% at 50% -15%, hsl(168 76% 36% / 0.07) 0%, transparent 55%),
+      linear-gradient(hsl(var(--border) / 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.35) 1px, transparent 1px);
+    background-size: auto, 48px 48px, 48px 48px;
+    background-position: center top, 0 0, 0 0;
   }
 
-  /* Dark body — deep dark with ambient glow */
+  /* Dark — charcoal + single soft teal ambient */
   .dark body {
     background-image:
-      radial-gradient(ellipse 80% 50% at 10% -10%, hsl(239 72% 65% / 0.08) 0%, transparent 60%),
-      radial-gradient(ellipse 60% 40% at 90% 110%, hsl(168 78% 43% / 0.05) 0%, transparent 50%);
+      radial-gradient(ellipse 80% 50% at 15% -10%, hsl(168 70% 45% / 0.1) 0%, transparent 55%);
+    background-size: auto;
   }
 
-  /* Headings */
   h1, h2, h3, h4, h5, h6 {
     color: hsl(var(--foreground));
     font-weight: 600;
@@ -158,7 +152,6 @@
     line-height: 1.3;
   }
 
-  /* Links */
   a {
     color: hsl(var(--primary));
     text-decoration: none;
@@ -166,36 +159,59 @@
   }
   a:hover { opacity: 0.8; }
 
-  /* Text selection */
   ::selection {
     background-color: hsl(var(--primary) / 0.2);
     color: hsl(var(--foreground));
   }
 
-  /* Focus ring — consistent across all elements */
   *:focus-visible {
     outline: 2px solid hsl(var(--ring));
     outline-offset: 2px;
     border-radius: var(--radius);
   }
 
-  /* Scrollbar */
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
     background: hsl(var(--border));
     border-radius: 9999px;
-    transition: background 0.2s;
   }
   ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
   * { scrollbar-width: thin; scrollbar-color: hsl(var(--border)) transparent; }
 }
 
 /* ====================================================================
+   MARKETING / AUTH ATMOSPHERE
+   ==================================================================== */
+.tf-atmosphere {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(ellipse 70% 50% at 20% 0%, hsl(168 76% 36% / 0.14) 0%, transparent 50%),
+    radial-gradient(ellipse 55% 40% at 90% 20%, hsl(168 55% 48% / 0.08) 0%, transparent 45%),
+    linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+    linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+  background-size: auto, auto, 56px 56px, 56px 56px;
+}
+
+.dark .tf-atmosphere {
+  background-image:
+    radial-gradient(ellipse 70% 50% at 15% -5%, hsl(168 70% 45% / 0.16) 0%, transparent 55%),
+    radial-gradient(ellipse 50% 35% at 95% 30%, hsl(168 50% 40% / 0.08) 0%, transparent 50%);
+  background-size: auto, auto;
+}
+
+/* Quiet dashboard canvas — lighter grid, no hero glow competing with density */
+.tf-dashboard-canvas {
+  background-color: hsl(var(--background));
+}
+
+/* ====================================================================
    DESIGN TOKEN COMPONENTS
    ==================================================================== */
 
-/* ── Card ─────────────────────────────────────────────────────────── */
 .harbor-card {
   background-color: hsl(var(--card));
   color: hsl(var(--card-foreground));
@@ -205,61 +221,47 @@
     border-color 0.2s ease,
     box-shadow 0.2s ease,
     transform 0.15s ease;
-}
-
-/* Light card shadow — soft and natural */
-.harbor-card {
   box-shadow:
-    0 1px 2px hsl(220 14% 12% / 0.04),
-    0 2px 8px hsl(220 14% 12% / 0.06);
+    0 1px 2px hsl(160 14% 12% / 0.04),
+    0 2px 8px hsl(160 14% 12% / 0.06);
 }
 .harbor-card:hover {
-  border-color: hsl(var(--border) / 1);
+  border-color: hsl(var(--border));
   box-shadow:
-    0 2px 4px hsl(220 14% 12% / 0.06),
-    0 6px 20px hsl(220 14% 12% / 0.08);
+    0 2px 4px hsl(160 14% 12% / 0.06),
+    0 6px 20px hsl(160 14% 12% / 0.08);
 }
 
-/* Dark card shadow — deeper contrast */
 .dark .harbor-card {
   box-shadow:
     0 1px 2px hsl(0 0% 0% / 0.3),
     0 4px 12px hsl(0 0% 0% / 0.25);
 }
 .dark .harbor-card:hover {
-  border-color: hsl(var(--border));
   box-shadow:
     0 2px 8px hsl(0 0% 0% / 0.4),
     0 8px 24px hsl(0 0% 0% / 0.3);
 }
 
-/* ── Glass Header ─────────────────────────────────────────────────── */
 .harbor-glass-header {
   background-color: hsl(var(--background) / 0.85);
   backdrop-filter: blur(20px) saturate(160%);
   -webkit-backdrop-filter: blur(20px) saturate(160%);
   border-bottom: 1px solid hsl(var(--border));
-  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────────── */
 .harbor-sidebar {
   background-color: hsl(var(--sidebar));
   border-right: 1px solid hsl(var(--sidebar-border));
-  transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-/* ── Popover / Dropdown ───────────────────────────────────────────── */
 .harbor-popover {
   background-color: hsl(var(--popover));
   border: 1px solid hsl(var(--border));
   border-radius: calc(var(--radius) + 4px);
-  transition: background-color 0.25s ease;
-}
-.harbor-popover {
   box-shadow:
-    0 4px 6px hsl(220 14% 12% / 0.04),
-    0 12px 40px hsl(220 14% 12% / 0.12);
+    0 4px 6px hsl(160 14% 12% / 0.04),
+    0 12px 40px hsl(160 14% 12% / 0.12);
 }
 .dark .harbor-popover {
   box-shadow:
@@ -267,9 +269,9 @@
     0 16px 48px hsl(0 0% 0% / 0.5);
 }
 
-/* ── Gradient Text ────────────────────────────────────────────────── */
-.gradient-harbor-text {
-  background: linear-gradient(135deg, hsl(var(--primary)), hsl(271 62% 60%));
+.gradient-harbor-text,
+.gradient-text {
+  background: linear-gradient(135deg, hsl(var(--primary)), hsl(168 55% 48%));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -280,20 +282,18 @@
    ==================================================================== */
 @layer components {
 
-  /* ── Surfaces ──────────────────────────────────────────────────── */
   .glass-card,
   .glass-panel { @apply harbor-card; }
 
   .harbor-surface {
     @apply rounded-xl border border-border bg-card transition-all duration-200;
-    box-shadow: 0 1px 2px hsl(220 14% 12% / 0.04), 0 2px 8px hsl(220 14% 12% / 0.06);
+    box-shadow: 0 1px 2px hsl(160 14% 12% / 0.04), 0 2px 8px hsl(160 14% 12% / 0.06);
   }
 
   .harbor-surface-alt {
     @apply rounded-xl border border-border bg-secondary transition-all duration-200;
   }
 
-  /* ── Input ─────────────────────────────────────────────────────── */
   .harbor-input {
     @apply w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground
            placeholder:text-muted-foreground outline-none
@@ -301,13 +301,11 @@
            focus:border-primary/50 focus:ring-2 focus:ring-primary/20;
   }
 
-  /* ── Badge ─────────────────────────────────────────────────────── */
   .harbor-badge {
     @apply inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5
            text-[11px] font-medium tracking-wide transition-colors;
   }
 
-  /* ── Nav Item ──────────────────────────────────────────────────── */
   .harbor-nav-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium
            text-muted-foreground transition-colors duration-150 cursor-pointer
@@ -322,12 +320,10 @@
     @apply bg-primary/20 text-primary;
   }
 
-  /* ── Stat Card ─────────────────────────────────────────────────── */
   .harbor-stat-card {
     @apply harbor-card p-5 flex flex-col gap-1;
   }
 
-  /* ── Section Header ────────────────────────────────────────────── */
   .harbor-section-title {
     @apply text-sm font-semibold text-foreground tracking-tight;
   }
@@ -336,12 +332,10 @@
     @apply text-xs text-muted-foreground leading-relaxed;
   }
 
-  /* ── Divider ───────────────────────────────────────────────────── */
   .harbor-divider {
     @apply border-t border-border;
   }
 
-  /* ── Table ─────────────────────────────────────────────────────── */
   .harbor-table { @apply w-full text-sm; }
   .harbor-table th {
     @apply px-4 py-3 text-left text-xs font-medium text-muted-foreground
@@ -353,7 +347,6 @@
   .harbor-table tr:last-child td { @apply border-0; }
   .harbor-table tr:hover td { @apply bg-muted/30 transition-colors; }
 
-  /* ── Empty State ───────────────────────────────────────────────── */
   .harbor-empty {
     @apply flex flex-col items-center justify-center py-16 text-center space-y-3;
   }
@@ -367,32 +360,27 @@
     @apply text-xs text-muted-foreground max-w-xs leading-relaxed;
   }
 
-  /* ── Code / Kbd ────────────────────────────────────────────────── */
   .harbor-kbd {
     @apply inline-flex items-center gap-0.5 rounded border border-border
            bg-muted px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground;
   }
 
-  /* ── Skeleton ──────────────────────────────────────────────────── */
   .harbor-skeleton {
     @apply rounded-lg bg-muted animate-pulse;
   }
 }
 
 /* ====================================================================
-   BADGE LIGHT/DARK CORRECTIONS
-   (badges use direct colors so need to adapt per theme)
+   BADGES
    ==================================================================== */
 
-/* Light mode badges — readable on white backgrounds */
-.badge-primary  { background: hsl(239 68% 56% / 0.1); color: hsl(239 68% 40%); border-color: hsl(239 68% 56% / 0.2); }
-.badge-success  { background: hsl(168 78% 35% / 0.1); color: hsl(168 78% 25%); border-color: hsl(168 78% 35% / 0.25); }
+.badge-primary  { background: hsl(168 76% 36% / 0.1); color: hsl(168 76% 28%); border-color: hsl(168 76% 36% / 0.25); }
+.badge-success  { background: hsl(168 76% 36% / 0.1); color: hsl(168 76% 25%); border-color: hsl(168 76% 36% / 0.25); }
 .badge-warning  { background: hsl(32 95% 50% / 0.1);  color: hsl(32 95% 35%);  border-color: hsl(32 95% 50% / 0.25); }
 .badge-danger   { background: hsl(0 72% 51% / 0.1);   color: hsl(0 72% 40%);   border-color: hsl(0 72% 51% / 0.2); }
 
-/* Dark mode badges — readable on dark surfaces */
-.dark .badge-primary { background: hsl(239 72% 65% / 0.15); color: hsl(239 72% 80%); border-color: hsl(239 72% 65% / 0.25); }
-.dark .badge-success { background: hsl(168 78% 43% / 0.15); color: hsl(168 78% 65%); border-color: hsl(168 78% 43% / 0.25); }
+.dark .badge-primary { background: hsl(168 70% 45% / 0.15); color: hsl(168 70% 70%); border-color: hsl(168 70% 45% / 0.25); }
+.dark .badge-success { background: hsl(168 70% 45% / 0.15); color: hsl(168 70% 65%); border-color: hsl(168 70% 45% / 0.25); }
 .dark .badge-warning { background: hsl(32 95% 60% / 0.15);  color: hsl(32 95% 75%);  border-color: hsl(32 95% 60% / 0.25); }
 .dark .badge-danger  { background: hsl(0 62% 48% / 0.15);   color: hsl(0 62% 75%);   border-color: hsl(0 62% 48% / 0.25); }
 
@@ -436,7 +424,6 @@
 .animate-scale-in     { animation: scaleIn 0.2s ease both; }
 .animate-pulse-glow   { animation: pulseGlow 2.5s ease-in-out infinite; }
 
-/* Shimmer skeleton */
 .animate-shimmer {
   background: linear-gradient(
     90deg,
