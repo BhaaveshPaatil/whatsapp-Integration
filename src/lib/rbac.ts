@@ -15,6 +15,11 @@ export function isOrgAdmin(user: UserProfile | null): boolean {
   return hasRole(user, ["admin"]);
 }
 
+/** Only org admins may assign tasks to teammates */
+export function canAssignTasks(user: UserProfile | null): boolean {
+  return isOrgAdmin(user);
+}
+
 export function canManageOrganization(user: UserProfile | null, orgId?: string): boolean {
   return Boolean(user && orgId && user.orgId === orgId && user.role === "admin");
 }

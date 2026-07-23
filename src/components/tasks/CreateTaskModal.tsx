@@ -15,6 +15,7 @@ interface CreateTaskModalProps {
   onSubmit: (data: TaskInput) => Promise<void>;
   task?: Task | null;
   members?: TeamMember[];
+  canAssign?: boolean;
 }
 
 function formatDateInput(value?: Timestamp | null): string {
@@ -28,6 +29,7 @@ export function CreateTaskModal({
   onSubmit,
   task,
   members = [],
+  canAssign = false,
 }: CreateTaskModalProps) {
   const {
     register,
@@ -108,22 +110,24 @@ export function CreateTaskModal({
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-harbor-secondary">Assign To</label>
-            <select {...register("assigneeId")} className="harbor-input w-full text-sm">
-              <option value="">Unassigned</option>
-              {activeMembers.map((member) => (
-                <option key={member.uid} value={member.uid}>
-                  {member.displayName} ({member.email})
-                </option>
-              ))}
-            </select>
-            {activeMembers.length === 0 && (
-              <p className="text-[11px] text-muted-foreground">
-                No active team members yet. Invite people from the Team page.
-              </p>
-            )}
-          </div>
+          {canAssign && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-harbor-secondary">Assign To</label>
+              <select {...register("assigneeId")} className="harbor-input w-full text-sm">
+                <option value="">Unassigned</option>
+                {activeMembers.map((member) => (
+                  <option key={member.uid} value={member.uid}>
+                    {member.displayName} ({member.email})
+                  </option>
+                ))}
+              </select>
+              {activeMembers.length === 0 && (
+                <p className="text-[11px] text-muted-foreground">
+                  No active team members yet. Invite people from the Team page.
+                </p>
+              )}
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">

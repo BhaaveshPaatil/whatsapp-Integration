@@ -14,6 +14,7 @@ import {
   updateTask,
 } from "@/lib/services/taskService";
 import { subscribeToOrganizationTeam } from "@/lib/services/team";
+import { canAssignTasks } from "@/lib/rbac";
 import {
   CheckSquare,
   Plus,
@@ -62,6 +63,7 @@ function parseLabels(labels?: string): string[] {
 
 export default function TasksPage() {
   const { user, organization } = useAuthStore();
+  const canAssign = canAssignTasks(user);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [activeStatus, setActiveStatus] = useState<TaskStatus>("todo");
@@ -96,17 +98,19 @@ export default function TasksPage() {
       }
     );
 
-    const unsubscribeTeam = subscribeToOrganizationTeam(
-      organization.id,
-      setMembers,
-      () => setMembers([])
-    );
+    const unsubscribeTeam = canAssign
+      ? subscribeToOrganizationTeam(
+          organization.id,
+          setMembers,
+          () => setMembers([])
+        )
+      : () => undefined;
 
     return () => {
       unsubscribeTasks();
       unsubscribeTeam();
     };
-  }, [organization?.id]);
+  }, [organization?.id, canAssign]);
 
   const statusCounts = useMemo(() => {
     const counts: Record<TaskStatus, number> = {
@@ -146,13 +150,16 @@ export default function TasksPage() {
 
     try {
       setError(null);
-      const assigneeName = resolveAssigneeName(data.assigneeId);
+      const assigneeId = canAssign ? data.assigneeId || "" : editingTask?.assigneeId || "";
+      const assigneeName = canAssign
+        ? resolveAssigneeName(data.assigneeId)
+        : editingTask?.assigneeName || "";
       const taskPayload = {
         title: data.title,
         description: data.description || "",
         priority: data.priority,
         status: data.status,
-        assigneeId: data.assigneeId || "",
+        assigneeId,
         assigneeName,
         dueDate: data.dueDate || "",
         labels: parseLabels(data.labels),
@@ -378,6 +385,7 @@ export default function TasksPage() {
         onSubmit={handleSaveTask}
         task={editingTask}
         members={members}
+        canAssign={canAssign}
       />
     </div>
   );
