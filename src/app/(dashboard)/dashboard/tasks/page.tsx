@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Task, TaskStatus, TaskPriority } from "@/types";
+import type { Task, TaskStatus, TaskPriority, TeamMember } from "@/types";
 import type { TaskInput } from "@/lib/validations/task";
 import { CreateTaskModal } from "@/components/tasks/CreateTaskModal";
 import { Button } from "@/components/ui/button";
@@ -13,24 +13,43 @@ import {
   subscribeToOrgTasks,
   updateTask,
 } from "@/lib/services/taskService";
+import { subscribeToOrganizationTeam } from "@/lib/services/team";
 import {
   CheckSquare,
   Plus,
   Search,
   Filter,
-  Kanban,
-  List,
-  Calendar,
   MessageSquare,
   Edit2,
   Loader2,
   Trash2,
+  UserRound,
 } from "lucide-react";
 import type { Timestamp } from "firebase/firestore";
 
-function formatTaskDate(value?: Timestamp | null): string {
-  if (!value) return "";
-  return value.toDate().toISOString().split("T")[0];
+const STATUS_TABS: { id: TaskStatus; title: string }[] = [
+  { id: "todo", title: "To Do" },
+  { id: "in_progress", title: "In Progress" },
+  { id: "in_review", title: "Review" },
+  { id: "completed", title: "Completed" },
+];
+
+function formatDisplayDate(value?: Timestamp | null): string {
+  if (!value) return "No due date";
+  return value.toDate().toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
+}
+
+function formatPriorityLabel(priority: TaskPriority): string {
+  return `${priority.charAt(0).toUpperCase()}${priority.slice(1)} Priority`;
+}
+
+function sourceLabel(source?: Task["source"]): string {
+  if (source === "whatsapp" || source === "ai_extracted") return "WhatsApp";
+  return "Manual";
 }
 
 function parseLabels(labels?: string): string[] {
@@ -45,10 +64,11 @@ export default function TasksPage() {
   const { user, organization } = useAuthStore();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [viewMode, setViewMode] = useState<"board" | "list">("board");
+  const [activeStatus, setActiveStatus] = useState<TaskStatus>("todo");
   const [searchQuery, setSearchQuery] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mutatingTaskId, setMutatingTaskId] = useState<string | null>(null);
@@ -56,6 +76,7 @@ export default function TasksPage() {
   useEffect(() => {
     if (!organization?.id) {
       setTasks([]);
+      setMembers([]);
       setIsLoading(false);
       return;
     }
@@ -63,7 +84,7 @@ export default function TasksPage() {
     setIsLoading(true);
     setError(null);
 
-    const unsubscribe = subscribeToOrgTasks(
+    const unsubscribeTasks = subscribeToOrgTasks(
       organization.id,
       (orgTasks) => {
         setTasks(orgTasks);
@@ -75,8 +96,47 @@ export default function TasksPage() {
       }
     );
 
-    return unsubscribe;
+    const unsubscribeTeam = subscribeToOrganizationTeam(
+      organization.id,
+      setMembers,
+      () => setMembers([])
+    );
+
+    return () => {
+      unsubscribeTasks();
+      unsubscribeTeam();
+    };
   }, [organization?.id]);
+
+  const statusCounts = useMemo(() => {
+    const counts: Record<TaskStatus, number> = {
+      todo: 0,
+      in_progress: 0,
+      in_review: 0,
+      completed: 0,
+    };
+    for (const task of tasks) {
+      if (counts[task.status] !== undefined) counts[task.status] += 1;
+    }
+    return counts;
+  }, [tasks]);
+
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((t) => {
+      if (t.status !== activeStatus) return false;
+      const matchesSearch =
+        t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        t.description.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesPriority = priorityFilter === "all" || t.priority === priorityFilter;
+      return matchesSearch && matchesPriority;
+    });
+  }, [activeStatus, priorityFilter, searchQuery, tasks]);
+
+  const resolveAssigneeName = (assigneeId?: string) => {
+    if (!assigneeId) return "";
+    const member = members.find((m) => m.uid === assigneeId);
+    return member?.displayName || "";
+  };
 
   const handleSaveTask = async (data: TaskInput) => {
     if (!organization?.id || !user?.uid) {
@@ -86,12 +146,14 @@ export default function TasksPage() {
 
     try {
       setError(null);
+      const assigneeName = resolveAssigneeName(data.assigneeId);
       const taskPayload = {
         title: data.title,
         description: data.description || "",
         priority: data.priority,
         status: data.status,
         assigneeId: data.assigneeId || "",
+        assigneeName,
         dueDate: data.dueDate || "",
         labels: parseLabels(data.labels),
       };
@@ -120,7 +182,9 @@ export default function TasksPage() {
       setMutatingTaskId(taskId);
       await updateTask(taskId, { status: newStatus });
     } catch (statusError) {
-      setError(statusError instanceof Error ? statusError.message : "Unable to update task status.");
+      setError(
+        statusError instanceof Error ? statusError.message : "Unable to update task status."
+      );
     } finally {
       setMutatingTaskId(null);
     }
@@ -151,38 +215,8 @@ export default function TasksPage() {
     setIsCreateOpen(true);
   };
 
-  const filteredTasks = useMemo(() => tasks.filter((t) => {
-    const matchesSearch =
-      t.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      t.description.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesPriority =
-      priorityFilter === "all" || t.priority === priorityFilter;
-    return matchesSearch && matchesPriority;
-  }), [priorityFilter, searchQuery, tasks]);
-
-  const columns: { id: TaskStatus; title: string; color: string }[] = [
-    { id: "todo", title: "To Do", color: "border-border bg-harbor-surface/70" },
-    { id: "in_progress", title: "In Progress", color: "border-primary/25 bg-primary/5" },
-    { id: "in_review", title: "In Review", color: "border-indigo-400/20 bg-harbor-surfaceAlt/80" },
-    { id: "completed", title: "Completed", color: "border-harbor-success/25 bg-harbor-success/5" },
-  ];
-
-  const getPriorityBadge = (priority: TaskPriority) => {
-    switch (priority) {
-      case "urgent":
-        return "bg-harbor-danger/10 text-red-300 border-harbor-danger/25";
-      case "high":
-        return "bg-harbor-warning/10 text-amber-300 border-harbor-warning/25";
-      case "medium":
-        return "bg-primary/10 text-indigo-200 border-primary/25";
-      default:
-        return "bg-harbor-surfaceAlt text-muted-foreground border-border";
-    }
-  };
-
   return (
     <div className="space-y-6">
-      {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
@@ -190,7 +224,7 @@ export default function TasksPage() {
             <span>Task Management</span>
           </h1>
           <p className="text-xs text-muted-foreground">
-            Create, assign, filter, and track tasks synced with AI & WhatsApp.
+            Switch status tabs, assign teammates, and track WhatsApp-sourced work.
           </p>
         </div>
 
@@ -206,235 +240,132 @@ export default function TasksPage() {
         </div>
       )}
 
-      {/* Filter & View Toolbar */}
-      <div className="harbor-card p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-        <div className="flex items-center space-x-3 w-full sm:w-auto flex-1">
-          <div className="relative w-full max-w-xs">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-            <input
-              type="text"
-              placeholder="Search tasks..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="harbor-input w-full pl-9"
-            />
-          </div>
-
-          <div className="flex items-center space-x-2">
-            <Filter className="h-4 w-4 text-muted-foreground" />
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="harbor-input"
+      <div className="grid grid-cols-2 gap-3 max-w-xl">
+        {STATUS_TABS.map((tab) => {
+          const count = statusCounts[tab.id];
+          const isActive = activeStatus === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveStatus(tab.id)}
+              className={cn(
+                "rounded-xl border px-4 py-3 text-left transition-colors",
+                isActive
+                  ? "border-primary/40 bg-primary/10 text-foreground"
+                  : "border-border bg-harbor-surface/70 text-muted-foreground hover:border-primary/25 hover:text-foreground"
+              )}
             >
-              <option value="all">All Priorities</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-          </div>
+              <span className="text-sm font-semibold">
+                {tab.title} ({count})
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="harbor-card p-4 flex flex-col sm:flex-row items-center gap-4">
+        <div className="relative w-full max-w-xs">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+          <input
+            type="text"
+            placeholder="Search tasks..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="harbor-input w-full pl-9"
+          />
         </div>
 
-        {/* View mode toggle */}
-        <div className="flex items-center space-x-1 p-1 rounded-xl bg-harbor-surfaceAlt border border-border">
-          <button
-            onClick={() => setViewMode("board")}
-            className={cn(
-              "flex items-center space-x-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-              viewMode === "board" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"
-            )}
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
+          <Filter className="h-4 w-4 text-muted-foreground" />
+          <select
+            value={priorityFilter}
+            onChange={(e) => setPriorityFilter(e.target.value)}
+            className="harbor-input"
           >
-            <Kanban className="h-3.5 w-3.5" />
-            <span>Board</span>
-          </button>
-          <button
-            onClick={() => setViewMode("list")}
-            className={cn(
-              "flex items-center space-x-1 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
-              viewMode === "list" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <List className="h-3.5 w-3.5" />
-            <span>List</span>
-          </button>
+            <option value="all">All Priorities</option>
+            <option value="urgent">Urgent</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
         </div>
       </div>
 
-      {/* Board View */}
       {isLoading ? (
         <div className="harbor-card p-8 flex items-center justify-center text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin mr-2 text-indigo-300" />
           Loading tasks...
         </div>
-      ) : viewMode === "board" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-          {columns.map((col) => {
-            const colTasks = filteredTasks.filter((t) => t.status === col.id);
-
-            return (
-              <div
-                key={col.id}
-                className={cn("rounded-2xl border p-4 flex flex-col space-y-4 min-h-[500px] transition-colors duration-200", col.color)}
-              >
-                <div className="flex items-center justify-between pb-3 border-b border-border">
-                  <span className="text-xs font-semibold text-foreground uppercase tracking-wider">
-                    {col.title}
-                  </span>
-                  <span className="h-5 w-5 rounded-full bg-harbor-surfaceAlt text-muted-foreground flex items-center justify-center text-[10px] font-semibold border border-border">
-                    {colTasks.length}
-                  </span>
-                </div>
-
-                <div className="flex-1 space-y-3">
-                  {colTasks.length === 0 && (
-                    <div className="py-8 text-center text-muted-foreground text-xs">
-                      No tasks in this column.
-                    </div>
-                  )}
-
-                  {colTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="harbor-card p-4 space-y-3 cursor-pointer hover:-translate-y-0.5 hover:border-primary/35 transition-all duration-200 group"
-                    >
-                      <div className="flex items-start justify-between">
-                        <span
-                          className={cn(
-                            "px-2 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wider",
-                            getPriorityBadge(task.priority)
-                          )}
-                        >
-                          {task.priority}
-                        </span>
-
-                        {task.source === "whatsapp" && (
-                          <span className="flex items-center space-x-1 text-[10px] text-emerald-300 bg-harbor-success/10 px-1.5 py-0.5 rounded-full border border-harbor-success/20">
-                            <MessageSquare className="h-3 w-3" />
-                            <span>WhatsApp</span>
-                          </span>
-                        )}
-                      </div>
-
-                      <h4 className="text-sm font-semibold text-foreground leading-snug group-hover:text-indigo-200 transition-colors">
-                        {task.title}
-                      </h4>
-
-                      {task.description && (
-                        <p className="text-xs text-muted-foreground line-clamp-2">{task.description}</p>
-                      )}
-
-                      <div className="flex items-center justify-between pt-3 border-t border-border text-[11px] text-muted-foreground">
-                        {task.dueDate ? (
-                          <span className="flex items-center space-x-1">
-                            <Calendar className="h-3 w-3 text-muted-foreground" />
-                            <span>{formatTaskDate(task.dueDate)}</span>
-                          </span>
-                        ) : (
-                          <span />
-                        )}
-
-                        <div className="flex items-center space-x-2">
-                          <select
-                            value={task.status}
-                            disabled={mutatingTaskId === task.id}
-                            onChange={(e) =>
-                              handleStatusChange(task.id, e.target.value as TaskStatus)
-                            }
-                            className="bg-harbor-surfaceAlt text-harbor-secondary border border-border rounded-lg px-1.5 py-0.5 text-[10px] focus:outline-none focus:border-primary/50"
-                          >
-                            <option value="todo">To Do</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="in_review">In Review</option>
-                            <option value="completed">Completed</option>
-                          </select>
-                          <button
-                            type="button"
-                            onClick={() => openEditModal(task)}
-                            className="text-muted-foreground hover:text-indigo-300 p-1 transition-colors"
-                          >
-                            <Edit2 className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTask(task.id)}
-                            disabled={mutatingTaskId === task.id}
-                            className="text-muted-foreground hover:text-red-300 p-1 transition-colors disabled:opacity-50"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
       ) : (
-        /* List View */
-        <div className="harbor-card p-5 space-y-3">
-          <div className="divide-y divide-border">
-            {filteredTasks.length === 0 && (
-              <div className="py-8 text-center text-muted-foreground text-xs">
-                No tasks found. Create your first task or sync from WhatsApp!
-              </div>
-            )}
+        <div className="space-y-3 max-w-2xl">
+          {filteredTasks.length === 0 && (
+            <div className="harbor-card p-8 text-center text-muted-foreground text-xs">
+              No tasks in {STATUS_TABS.find((t) => t.id === activeStatus)?.title}. Create one or
+              move a task into this status.
+            </div>
+          )}
 
-            {filteredTasks.map((task) => (
-              <div
-                key={task.id}
-                className="flex items-center justify-between py-3 px-2 hover:bg-harbor-surfaceAlt rounded-xl transition-colors"
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm font-semibold text-foreground">{task.title}</span>
-                    <span
-                      className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-semibold border uppercase tracking-wider",
-                        getPriorityBadge(task.priority)
-                      )}
-                    >
-                      {task.priority}
-                    </span>
-                  </div>
-                  <p className="text-xs text-muted-foreground line-clamp-1">{task.description}</p>
-                </div>
-
-                <div className="flex items-center space-x-4">
-                  <select
-                    value={task.status}
-                    disabled={mutatingTaskId === task.id}
-                    onChange={(e) =>
-                      handleStatusChange(task.id, e.target.value as TaskStatus)
-                    }
-                    className="bg-harbor-surfaceAlt text-harbor-secondary border border-border rounded-lg px-2 py-1 text-xs focus:outline-none focus:border-primary/50"
-                  >
-                    <option value="todo">To Do</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="in_review">In Review</option>
-                    <option value="completed">Completed</option>
-                  </select>
+          {filteredTasks.map((task) => (
+            <div
+              key={task.id}
+              className="harbor-card p-5 space-y-3 hover:border-primary/30 transition-colors group"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="text-base font-semibold text-foreground leading-snug">
+                  {task.title}
+                </h3>
+                <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
                   <button
                     type="button"
                     onClick={() => openEditModal(task)}
-                    className="text-muted-foreground hover:text-indigo-300 p-1 transition-colors"
+                    className="text-muted-foreground hover:text-indigo-300 p-1"
+                    aria-label="Edit task"
                   >
-                    <Edit2 className="h-4 w-4" />
+                    <Edit2 className="h-3.5 w-3.5" />
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDeleteTask(task.id)}
                     disabled={mutatingTaskId === task.id}
-                    className="text-muted-foreground hover:text-red-300 p-1 transition-colors disabled:opacity-50"
+                    className="text-muted-foreground hover:text-red-300 p-1 disabled:opacity-50"
+                    aria-label="Delete task"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
               </div>
-            ))}
-          </div>
+
+              <div className="space-y-1 text-sm text-muted-foreground">
+                <p>{formatDisplayDate(task.dueDate)}</p>
+                <p>{formatPriorityLabel(task.priority)}</p>
+                <p className="flex items-center gap-1.5">
+                  {(task.source === "whatsapp" || task.source === "ai_extracted") && (
+                    <MessageSquare className="h-3.5 w-3.5 text-emerald-300" />
+                  )}
+                  <span>{sourceLabel(task.source)}</span>
+                </p>
+                <p className="flex items-center gap-1.5">
+                  <UserRound className="h-3.5 w-3.5" />
+                  <span>{task.assigneeName || "Unassigned"}</span>
+                </p>
+              </div>
+
+              <div className="pt-2">
+                <select
+                  value={task.status}
+                  disabled={mutatingTaskId === task.id}
+                  onChange={(e) => handleStatusChange(task.id, e.target.value as TaskStatus)}
+                  className="harbor-input text-xs w-full sm:w-auto"
+                >
+                  <option value="todo">Move to To Do</option>
+                  <option value="in_progress">Move to In Progress</option>
+                  <option value="in_review">Move to Review</option>
+                  <option value="completed">Move to Completed</option>
+                </select>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -446,6 +377,7 @@ export default function TasksPage() {
         }}
         onSubmit={handleSaveTask}
         task={editingTask}
+        members={members}
       />
     </div>
   );

@@ -28,6 +28,7 @@ export interface CreateTaskInput {
   status: TaskStatus;
   priority: TaskPriority;
   assigneeId?: string;
+  assigneeName?: string;
   dueDate?: string;
   createdBy: string;
   source?: Task["source"];
@@ -37,7 +38,15 @@ export interface CreateTaskInput {
 export type UpdateTaskInput = Partial<
   Pick<
     CreateTaskInput,
-    "title" | "description" | "status" | "priority" | "assigneeId" | "dueDate" | "source" | "labels"
+    | "title"
+    | "description"
+    | "status"
+    | "priority"
+    | "assigneeId"
+    | "assigneeName"
+    | "dueDate"
+    | "source"
+    | "labels"
   >
 >;
 
@@ -106,6 +115,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       status: input.status,
       priority: input.priority,
       assigneeId: input.assigneeId || "",
+      assigneeName: input.assigneeName || "",
       dueDate: parseDueDate(input.dueDate),
       createdBy: input.createdBy,
       createdAt: now,
@@ -161,6 +171,7 @@ export async function updateTask(taskId: string, input: UpdateTaskInput): Promis
     if (input.status !== undefined) updates.status = input.status;
     if (input.priority !== undefined) updates.priority = input.priority;
     if (input.assigneeId !== undefined) updates.assigneeId = input.assigneeId || "";
+    if (input.assigneeName !== undefined) updates.assigneeName = input.assigneeName || "";
     if (input.dueDate !== undefined) updates.dueDate = parseDueDate(input.dueDate);
     if (input.labels !== undefined) updates.labels = input.labels;
     if (input.source !== undefined) updates.source = input.source;
