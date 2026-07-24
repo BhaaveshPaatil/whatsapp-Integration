@@ -22,41 +22,49 @@ const MAX_ATTEMPTS = 5;
 
 export async function resolveOrgIdForWhatsApp(
   phoneNumberId?: string
-): Promise<string | null> {
+): Promise<string> {
   const db = getAdminDb();
 
   if (phoneNumberId) {
-    console.log("Searching whatsappConnections");
-    console.log("Phone Number ID:", phoneNumberId);
+    console.log("Searching whatsappConnections for phoneNumberId:", phoneNumberId);
     const connSnap = await db
       .collection("whatsappConnections")
       .where("phoneNumberId", "==", phoneNumberId)
       .where("active", "==", true)
-      .limit(1)
+      .limit(2)
       .get();
 
     if (!connSnap.empty) {
-      console.log("Connections found:", connSnap.size);
-
+      if (connSnap.size > 1) {
+        console.warn(`[DUPLICATE MAPPING WARNING] Multiple active whatsappConnections found for Phone Number ID: ${phoneNumberId}`);
+      }
       return connSnap.docs[0].data().orgId as string;
     }
 
-    console.log("Searching organizations");
+    console.log("Searching organizations for whatsappPhoneNumberId:", phoneNumberId);
     const orgSnap = await db
       .collection("organizations")
       .where("whatsappPhoneNumberId", "==", phoneNumberId)
-      .limit(1)
+      .limit(2)
       .get();
 
     if (!orgSnap.empty) {
-      console.log("Organizations found:", orgSnap.size);
-
+      if (orgSnap.size > 1) {
+        console.warn(`[DUPLICATE MAPPING WARNING] Multiple organizations found with whatsappPhoneNumberId: ${phoneNumberId}`);
+      }
       return orgSnap.docs[0].id;
     }
   }
 
-  console.log("Returning DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
-  return process.env.DEFAULT_ORG_ID || null;
+  // Fallback to DEFAULT_ORG_ID in development/local testing
+  if (process.env.DEFAULT_ORG_ID) {
+    console.log("resolveOrgIdForWhatsApp fallback: using DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
+    return process.env.DEFAULT_ORG_ID;
+  }
+
+  const errorMsg = `[RESOLVE ORG FAILED] No active organization mapping found for WhatsApp Phone Number ID: ${phoneNumberId || "undefined"}`;
+  console.error(errorMsg);
+  throw new Error(errorMsg);
 }
 
 export async function findDuplicateByExternalId(
@@ -167,18 +175,31 @@ export async function saveInboundMessage(
   orgId: string,
   normalized: NormalizedInboundMessage
 ): Promise<{ message: InboundMessage; queueItem: ProcessingQueueItem; isDuplicate: boolean }> {
-  console.log("saveInboundMessage started");
-  try {
-    const db = getAdminDb();
-    console.log("Creating/updating conversation");
-    const now = new Date().toISOString();
-    const hash = contentHash(normalized.sender, normalized.text);
+  console.log("saveInboundMessage transaction started");
+  const db = getAdminDb();
+  const now = new Date().toISOString();
+  const hash = contentHash(normalized.sender, normalized.text);
 
-    const byExternal = await findDuplicateByExternalId(orgId, normalized.externalId);
-    if (byExternal) {
-      return {
-        message: byExternal,
-        queueItem: {
+  let resultMessage: InboundMessage;
+  let resultQueueItem: ProcessingQueueItem;
+  let isDuplicate = false;
+
+  try {
+    await db.runTransaction(async (transaction) => {
+      // --- READ PHASE ---
+      // 1. Check duplicate externalId
+      const externalQuery = db
+        .collection("whatsappMessages")
+        .where("orgId", "==", orgId)
+        .where("externalId", "==", normalized.externalId)
+        .limit(1);
+      const externalSnap = await transaction.get(externalQuery);
+
+      if (!externalSnap.empty) {
+        isDuplicate = true;
+        const byExternal = externalSnap.docs[0].data() as InboundMessage;
+        resultMessage = byExternal;
+        resultQueueItem = {
           id: "",
           orgId,
           messageId: byExternal.id,
@@ -188,48 +209,87 @@ export async function saveInboundMessage(
           scheduledAt: now,
           createdAt: now,
           updatedAt: now,
-        },
-        isDuplicate: true,
+        };
+        return;
+      }
+
+      // 2. Check duplicate by content hash
+      const since = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
+      const hashQuery = db
+        .collection("whatsappMessages")
+        .where("orgId", "==", orgId)
+        .where("contentHash", "==", hash)
+        .where("createdAt", ">=", since)
+        .limit(1);
+      const hashSnap = await transaction.get(hashQuery);
+      const byHash = !hashSnap.empty ? (hashSnap.docs[0].data() as InboundMessage) : null;
+
+      // 3. Get conversation
+      const threadKey = `${normalized.source}:${normalized.sender}`;
+      const convQuery = db
+        .collection("conversations")
+        .where("orgId", "==", orgId)
+        .where("externalThreadKey", "==", threadKey)
+        .limit(1);
+      const convSnap = await transaction.get(convQuery);
+
+      // --- WRITE PHASE ---
+      const msgRef = db.collection("whatsappMessages").doc();
+      let conversationId: string;
+
+      if (!convSnap.empty) {
+        const convDoc = convSnap.docs[0];
+        const convData = convDoc.data() as Conversation;
+        conversationId = convDoc.id;
+        const recent = [msgRef.id, ...(convData.recentMessageIds || [])].slice(0, 20);
+        transaction.update(convDoc.ref, {
+          lastMessageAt: now,
+          updatedAt: now,
+          recentMessageIds: recent,
+        });
+      } else {
+        const convRef = db.collection("conversations").doc();
+        conversationId = convRef.id;
+        const conversation: Conversation = {
+          id: convRef.id,
+          orgId,
+          source: normalized.source,
+          externalThreadKey: threadKey,
+          participant: normalized.sender,
+          lastMessageAt: now,
+          recentMessageIds: [msgRef.id],
+          createdAt: now,
+          updatedAt: now,
+        };
+        transaction.set(convRef, conversation);
+      }
+
+      const message: InboundMessage = {
+        id: msgRef.id,
+        orgId,
+        source: normalized.source,
+        externalId: normalized.externalId,
+        sender: normalized.sender,
+        senderName: normalized.senderName,
+        text: normalized.text,
+        normalizedText: normalizeText(normalized.text),
+        type: normalized.type,
+        status: byHash ? "duplicate" : "pending",
+        contentHash: hash,
+        phoneNumberId: normalized.phoneNumberId,
+        conversationId,
+        rawPayload: normalized.rawPayload,
+        attachmentRefs: normalized.attachmentRefs,
+        createdAt: now,
+        updatedAt: now,
       };
-    }
 
-    const byHash = await findDuplicateByContentHash(orgId, hash);
-    console.log("Writing whatsappMessages document");
-    const msgRef = db.collection("whatsappMessages").doc();
-    const conversationId = await upsertConversation({
-      orgId,
-      source: normalized.source,
-      participant: normalized.sender,
-      messageId: msgRef.id,
-    });
+      transaction.set(msgRef, message);
 
-    const message: InboundMessage = {
-      id: msgRef.id,
-      orgId,
-      source: normalized.source,
-      externalId: normalized.externalId,
-      sender: normalized.sender,
-      senderName: normalized.senderName,
-      text: normalized.text,
-      normalizedText: normalizeText(normalized.text),
-      type: normalized.type,
-      status: byHash ? "duplicate" : "pending",
-      contentHash: hash,
-      phoneNumberId: normalized.phoneNumberId,
-      conversationId,
-      rawPayload: normalized.rawPayload,
-      attachmentRefs: normalized.attachmentRefs,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await msgRef.set(message);
-    console.log("whatsappMessages write complete");
-
-    if (byHash) {
-      return {
-        message,
-        queueItem: {
+      if (byHash) {
+        isDuplicate = true;
+        resultMessage = message;
+        resultQueueItem = {
           id: "",
           orgId,
           messageId: message.id,
@@ -239,32 +299,34 @@ export async function saveInboundMessage(
           scheduledAt: now,
           createdAt: now,
           updatedAt: now,
-        },
-        isDuplicate: true,
+        };
+        return;
+      }
+
+      const queueRef = db.collection("processingQueue").doc();
+      const queueItem: ProcessingQueueItem = {
+        id: queueRef.id,
+        orgId,
+        messageId: message.id,
+        attempts: 0,
+        maxAttempts: MAX_ATTEMPTS,
+        status: "pending",
+        scheduledAt: now,
+        createdAt: now,
+        updatedAt: now,
       };
-    }
 
-    console.log("Writing processingQueue document");
-    const queueRef = db.collection("processingQueue").doc();
-    const queueItem: ProcessingQueueItem = {
-      id: queueRef.id,
-      orgId,
-      messageId: message.id,
-      attempts: 0,
-      maxAttempts: MAX_ATTEMPTS,
-      status: "pending",
-      scheduledAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
+      transaction.set(queueRef, queueItem);
+      transaction.update(msgRef, { status: "queued", updatedAt: now });
 
-    await queueRef.set(queueItem);
-    console.log("processingQueue write complete");
-    await msgRef.update({ status: "queued", updatedAt: now });
-    console.log("saveInboundMessage completed");
-    return { message: { ...message, status: "queued" }, queueItem, isDuplicate: false };
+      resultMessage = { ...message, status: "queued" };
+      resultQueueItem = queueItem;
+    });
+
+    console.log("saveInboundMessage completed successfully");
+    return { message: resultMessage!, queueItem: resultQueueItem!, isDuplicate };
   } catch (error) {
-    console.error("========== SAVE INBOUND MESSAGE ERROR ==========");
+    console.error("========== SAVE INBOUND MESSAGE TRANSACTION ERROR ==========");
     console.error(error);
     if (error instanceof Error) {
       console.error(error.message);

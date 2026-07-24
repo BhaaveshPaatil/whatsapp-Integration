@@ -2,21 +2,34 @@
 
 import { useEffect, useState } from "react";
 import { useAuthStore } from "@/store/useAuthStore";
-import { updateOrganization } from "@/lib/services/organization";
 import { canManageOrganization } from "@/lib/rbac";
+import { auth } from "@/lib/firebase";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings, Building, Bot, MessageSquare, Save, CheckCircle2, ShieldAlert, Loader2 } from "lucide-react";
+import {
+  Settings, Building, Bot, MessageSquare, Save,
+  CheckCircle2, ShieldAlert, Loader2, Wifi, WifiOff,
+  Globe,
+} from "lucide-react";
+
+type ConnectionStatus = "idle" | "testing" | "connected" | "failed";
 
 export default function SettingsPage() {
   const { user, organization, setOrganization } = useAuthStore();
   const [orgName, setOrgName] = useState(organization?.name || "");
   const [whatsappPhoneId, setWhatsappPhoneId] = useState(organization?.whatsappPhoneNumberId || "");
-  const [whatsappToken, setWhatsappToken] = useState(organization?.whatsappAccessToken || "");
+  const [whatsappBusinessAccountId, setWhatsappBusinessAccountId] = useState(
+    (organization as any)?.whatsappBusinessAccountId || ""
+  );
+  const [whatsappToken, setWhatsappToken] = useState("");
   const [geminiKey, setGeminiKey] = useState(organization?.geminiApiKey || "");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
+    organization?.whatsappConfigured ? "connected" : "idle"
+  );
+  const [displayPhone, setDisplayPhone] = useState<string | null>(null);
 
   const isAdmin = canManageOrganization(user, organization?.id);
 
@@ -24,8 +37,11 @@ export default function SettingsPage() {
     if (!organization) return;
     setOrgName(organization.name || "");
     setWhatsappPhoneId(organization.whatsappPhoneNumberId || "");
-    setWhatsappToken(organization.whatsappAccessToken || "");
+    setWhatsappBusinessAccountId((organization as any)?.whatsappBusinessAccountId || "");
     setGeminiKey(organization.geminiApiKey || "");
+    setConnectionStatus(organization.whatsappConfigured ? "connected" : "idle");
+    // Don't populate the token field — it's encrypted server-side
+    setWhatsappToken("");
   }, [organization]);
 
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -35,26 +51,67 @@ export default function SettingsPage() {
       return;
     }
 
+    if (!whatsappPhoneId || !whatsappBusinessAccountId || !whatsappToken) {
+      setError("Phone Number ID, Business Account ID, and Access Token are all required.");
+      return;
+    }
+
     try {
       setError(null);
       setMessage(null);
       setIsSaving(true);
-      const updates = {
-        name: orgName,
-        slug: orgName.toLowerCase().replace(/[^a-z0-9]/g, "-"),
-        whatsappPhoneNumberId: whatsappPhoneId,
-        whatsappAccessToken: whatsappToken,
-        geminiApiKey: geminiKey,
-        whatsappConfigured: Boolean(whatsappPhoneId && whatsappToken),
-        aiConfigured: Boolean(geminiKey),
-      };
+      setConnectionStatus("testing");
 
-      await updateOrganization(organization.id, updates);
-      setOrganization({ ...organization, ...updates, updatedAt: new Date().toISOString() });
-      setMessage("Settings saved successfully!");
-      setTimeout(() => setMessage(null), 3000);
+      // Get Firebase ID token for server auth
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        setError("Authentication error. Please log in again.");
+        setIsSaving(false);
+        setConnectionStatus("failed");
+        return;
+      }
+
+      const res = await fetch("/api/whatsapp/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          orgId: organization.id,
+          whatsappPhoneNumberId: whatsappPhoneId,
+          whatsappBusinessAccountId,
+          whatsappAccessToken: whatsappToken,
+          geminiApiKey: geminiKey,
+          orgName,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error || "Failed to save configuration.");
+        setConnectionStatus("failed");
+        return;
+      }
+
+      setConnectionStatus("connected");
+      setDisplayPhone(data.displayPhoneNumber || null);
+      setOrganization({
+        ...organization,
+        name: orgName,
+        whatsappPhoneNumberId: whatsappPhoneId,
+        whatsappConfigured: true,
+        geminiApiKey: geminiKey,
+        aiConfigured: Boolean(geminiKey),
+        updatedAt: new Date().toISOString(),
+      });
+      setMessage("Configuration saved and Meta token verified successfully!");
+      setWhatsappToken(""); // Clear token from UI after save
+      setTimeout(() => setMessage(null), 5000);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save settings.");
+      setConnectionStatus("failed");
     } finally {
       setIsSaving(false);
     }
@@ -77,7 +134,7 @@ export default function SettingsPage() {
       <div>
         <h1 className="text-2xl font-semibold text-foreground tracking-tight flex items-center space-x-2">
           <Settings className="h-6 w-6 text-primary" />
-          <span>Organization & API Settings</span>
+          <span>Organization &amp; API Settings</span>
         </h1>
         <p className="text-xs text-muted-foreground">
           Configure WhatsApp Business API credentials, Gemini AI model keys, and general settings.
@@ -123,11 +180,49 @@ export default function SettingsPage() {
         {/* WhatsApp Settings */}
         <Card>
           <CardHeader>
-            <div className="flex items-center space-x-2">
-              <MessageSquare className="h-5 w-5 text-emerald-400" />
-              <CardTitle className="text-base">WhatsApp Business API Settings</CardTitle>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <MessageSquare className="h-5 w-5 text-emerald-400" />
+                <CardTitle className="text-base">WhatsApp Business API Settings</CardTitle>
+              </div>
+              {/* Connection Status Badge */}
+              <span
+                className={`flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
+                  connectionStatus === "connected"
+                    ? "bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border-harbor-success/25"
+                    : connectionStatus === "testing"
+                    ? "bg-amber-500/10 text-amber-600 dark:text-amber-300 border-amber-500/25"
+                    : connectionStatus === "failed"
+                    ? "bg-red-500/10 text-red-600 dark:text-red-300 border-red-500/25"
+                    : "bg-muted text-muted-foreground border-border"
+                }`}
+              >
+                {connectionStatus === "connected" ? (
+                  <Wifi className="h-3.5 w-3.5" />
+                ) : connectionStatus === "testing" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : connectionStatus === "failed" ? (
+                  <WifiOff className="h-3.5 w-3.5" />
+                ) : (
+                  <Globe className="h-3.5 w-3.5" />
+                )}
+                <span>
+                  {connectionStatus === "connected"
+                    ? "Connected"
+                    : connectionStatus === "testing"
+                    ? "Verifying..."
+                    : connectionStatus === "failed"
+                    ? "Failed"
+                    : "Not Connected"}
+                </span>
+              </span>
             </div>
-            <CardDescription>Meta Cloud API Phone Number ID and Access Tokens</CardDescription>
+            <CardDescription>
+              Meta Cloud API Phone Number ID, Business Account, and Access Tokens.
+              {displayPhone && (
+                <span className="ml-1 text-emerald-500 font-medium">{displayPhone}</span>
+              )}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
@@ -142,7 +237,23 @@ export default function SettingsPage() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-harbor-secondary">Permanent Access Token</label>
+              <label className="text-xs font-medium text-harbor-secondary">Business Account ID</label>
+              <input
+                type="text"
+                placeholder="1370124431755460"
+                value={whatsappBusinessAccountId}
+                onChange={(e) => setWhatsappBusinessAccountId(e.target.value)}
+                className="harbor-input w-full max-w-md font-mono"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-harbor-secondary">
+                Permanent Access Token
+                {organization?.whatsappConfigured && (
+                  <span className="ml-2 text-emerald-500 text-[10px]">(token saved &amp; encrypted — enter new token to update)</span>
+                )}
+              </label>
               <input
                 type="password"
                 placeholder="EAAG..."
@@ -159,7 +270,7 @@ export default function SettingsPage() {
           <CardHeader>
             <div className="flex items-center space-x-2">
               <Bot className="h-5 w-5 text-primary" />
-              <CardTitle className="text-base">Gemini AI Key & Model Config</CardTitle>
+              <CardTitle className="text-base">Gemini AI Key &amp; Model Config</CardTitle>
             </div>
             <CardDescription>Google Gemini API Key for Task Extraction NLP</CardDescription>
           </CardHeader>

@@ -29,7 +29,25 @@ export async function GET(req: NextRequest) {
  * Webhook responsibility: validate → persist raw message → ack <500ms.
  * AI and task creation run asynchronously via /api/workers/process-message.
  */
+import crypto from "crypto";
+
+function logStructured(level: "info" | "warn" | "error", message: string, meta: Record<string, any> = {}) {
+  console.log(
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      ...meta,
+    })
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const startTime = Date.now();
+  const requestId = crypto.randomUUID();
+
+  logStructured("info", "Inbound WhatsApp webhook POST request received", { requestId });
+
   const rawBody = await req.text();
 
   const verified = await whatsappConnector.verifyWebhook!({
@@ -39,6 +57,12 @@ export async function POST(req: NextRequest) {
   });
 
   if (!verified.ok) {
+    logStructured("warn", "Webhook verification signature check failed", {
+      requestId,
+      status: verified.status,
+      body: verified.body,
+      durationMs: Date.now() - startTime,
+    });
     return new NextResponse(verified.body || "Unauthorized", {
       status: verified.status || 401,
     });
@@ -48,24 +72,29 @@ export async function POST(req: NextRequest) {
   try {
     body = JSON.parse(rawBody);
   } catch {
+    logStructured("error", "Webhook request body is not valid JSON", {
+      requestId,
+      durationMs: Date.now() - startTime,
+    });
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const normalized = whatsappConnector.normalize(body);
-  console.log("Normalized messages:", normalized.length);
-  console.log("Normalized payload:", normalized);
+  logStructured("info", "Successfully normalized WhatsApp webhook payload", {
+    requestId,
+    count: normalized.length,
+    messages: normalized.map((m) => ({ id: m.externalId, sender: m.sender })),
+  });
+
   if (normalized.length === 0) {
     return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
   }
 
   if (!isAdminConfigured()) {
-    console.warn(
-      "FIREBASE_SERVICE_ACCOUNT_JSON not set — acknowledging webhook without persistence."
-    );
-    console.log(
-      "Inbound WhatsApp messages:",
-      normalized.map((m) => ({ from: m.sender, text: m.text, id: m.externalId }))
-    );
+    logStructured("warn", "FIREBASE_SERVICE_ACCOUNT_JSON is not configured; acknowledging webhook without persistence.", {
+      requestId,
+      durationMs: Date.now() - startTime,
+    });
     return NextResponse.json({ status: "EVENT_RECEIVED", persisted: false }, { status: 200 });
   }
 
@@ -74,27 +103,35 @@ export async function POST(req: NextRequest) {
     const accepted: string[] = [];
 
     for (const item of normalized) {
-      console.log("Processing message");
-      console.log("External ID:", item.externalId);
-      console.log("Phone Number ID:", item.phoneNumberId);
-      console.log("Sender:", item.sender);
-      console.log("Text:", item.text);
+      logStructured("info", "Beginning processing loop for inbound WhatsApp item", {
+        requestId,
+        externalId: item.externalId,
+        phoneNumberId: item.phoneNumberId,
+        sender: item.sender,
+      });
 
       const orgId = await resolveOrgIdForWhatsApp(item.phoneNumberId);
-      console.log("Resolved Org ID:", orgId);
-      console.log("DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
-      if (!orgId) {
-        console.error("No organization mapping found.");
-        continue;
-      }
+      logStructured("info", "Organization mapped successfully", {
+        requestId,
+        phoneNumberId: item.phoneNumberId,
+        orgId,
+      });
 
-      console.log("Calling saveInboundMessage()");
+      logStructured("info", "Saving inbound message via transaction", {
+        requestId,
+        orgId,
+        externalId: item.externalId,
+      });
+
       const { message, queueItem, isDuplicate } = await saveInboundMessage(orgId, item);
-      console.log("Message saved");
-      console.log(message);
-      console.log(queueItem);
 
-      console.log("Publishing event:", isDuplicate ? "duplicate_detected" : "message_received");
+      logStructured("info", "Message persistence stage finished", {
+        requestId,
+        messageId: message.id,
+        isDuplicate,
+        queueId: queueItem.id,
+      });
+
       await publishEvent({
         orgId,
         type: isDuplicate ? "duplicate_detected" : "message_received",
@@ -107,33 +144,40 @@ export async function POST(req: NextRequest) {
       });
 
       if (!isDuplicate && queueItem.id) {
-        console.log("Publishing event:", "message_queued");
         await publishEvent({
           orgId,
           type: "message_queued",
           messageId: message.id,
           meta: { queueId: queueItem.id },
         });
-        console.log("Queueing worker:", queueItem.id);
+
+        logStructured("info", "Enqueueing worker processing flow", {
+          requestId,
+          queueId: queueItem.id,
+        });
+
         enqueueWorkerProcessing(queueItem.id, origin);
         accepted.push(queueItem.id);
       }
     }
 
-    console.log("Webhook finished successfully");
+    logStructured("info", "Webhook finished successfully", {
+      requestId,
+      queued: accepted.length,
+      durationMs: Date.now() - startTime,
+    });
+
     return NextResponse.json(
       { status: "EVENT_RECEIVED", queued: accepted.length },
       { status: 200 }
     );
-  } catch (error) {
-    console.error("========== WEBHOOK ERROR ==========");
-    console.error(error);
-    if (error instanceof Error) {
-      console.error(error.message);
-      console.error(error.stack);
-    }
-    // Still 200 to avoid Meta retry storms when our infra is down mid-write;
-    // message may be lost — prefer alerting over duplicate AI work.
+  } catch (error: any) {
+    logStructured("error", "Error encountered processing WhatsApp webhook persistence", {
+      requestId,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      durationMs: Date.now() - startTime,
+    });
     return NextResponse.json({ status: "EVENT_RECEIVED", error: "persist_failed" }, { status: 200 });
   }
 }

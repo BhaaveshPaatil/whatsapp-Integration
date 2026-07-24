@@ -24,6 +24,7 @@ export interface Organization {
   whatsappConfigured: boolean;
   aiConfigured: boolean;
   whatsappPhoneNumberId?: string;
+  whatsappBusinessAccountId?: string;
   whatsappAccessToken?: string;
   geminiApiKey?: string;
 }
@@ -229,6 +230,7 @@ export interface WhatsAppConnection {
   id: string;
   orgId: string;
   phoneNumberId: string;
+  businessAccountId?: string;
   displayPhoneNumber?: string;
   verifyToken?: string;
   active: boolean;

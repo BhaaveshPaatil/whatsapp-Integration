@@ -1,12 +1,47 @@
+import { decrypt } from "@/lib/crypto";
+
+/**
+ * Load org-specific WhatsApp credentials from Firestore via firebase-admin.
+ * Falls back to env vars when orgId is not provided.
+ */
+async function getOrgCredentials(orgId?: string): Promise<{
+  phoneNumberId: string;
+  accessToken: string;
+} | null> {
+  if (!orgId) return null;
+
+  try {
+    const { getAdminDb } = await import("@/lib/firebase-admin");
+    const db = getAdminDb();
+    const orgDoc = await db.collection("organizations").doc(orgId).get();
+    if (!orgDoc.exists) return null;
+
+    const org = orgDoc.data();
+    if (!org?.whatsappPhoneNumberId || !org?.whatsappAccessToken) return null;
+
+    return {
+      phoneNumberId: org.whatsappPhoneNumberId,
+      accessToken: decrypt(org.whatsappAccessToken),
+    };
+  } catch (error) {
+    console.error("Failed to load org WhatsApp credentials:", error);
+    return null;
+  }
+}
+
 export async function sendWhatsAppMessage(
   toPhone: string,
-  messageText: string
+  messageText: string,
+  orgId?: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const accessToken = process.env.WHATSAPP_ACCESS_TOKEN;
+  // Try org-specific credentials first
+  const orgCreds = await getOrgCredentials(orgId);
+
+  const phoneNumberId = orgCreds?.phoneNumberId || process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const accessToken = orgCreds?.accessToken || process.env.WHATSAPP_ACCESS_TOKEN;
 
   if (!phoneNumberId || !accessToken) {
-    console.warn("WhatsApp API credentials missing in .env.local, simulating response.");
+    console.warn("WhatsApp API credentials missing, simulating response.");
     return { success: true, messageId: "simulated_msg_" + Date.now() };
   }
 
