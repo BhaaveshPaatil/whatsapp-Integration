@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+
+// Debug banner for webhook entry
+console.log("========== WHATSAPP WEBHOOK ==========");
 import { whatsappConnector } from "@/lib/pipeline/connectors";
 import { publishEvent } from "@/lib/pipeline/events";
 import { resolveOrgIdForWhatsApp, saveInboundMessage } from "@/lib/pipeline/store";
@@ -49,6 +52,8 @@ export async function POST(req: NextRequest) {
   }
 
   const normalized = whatsappConnector.normalize(body);
+  console.log("Normalized messages:", normalized.length);
+  console.log("Normalized payload:", normalized);
   if (normalized.length === 0) {
     return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
   }
@@ -69,14 +74,27 @@ export async function POST(req: NextRequest) {
     const accepted: string[] = [];
 
     for (const item of normalized) {
+      console.log("Processing message");
+      console.log("External ID:", item.externalId);
+      console.log("Phone Number ID:", item.phoneNumberId);
+      console.log("Sender:", item.sender);
+      console.log("Text:", item.text);
+
       const orgId = await resolveOrgIdForWhatsApp(item.phoneNumberId);
+      console.log("Resolved Org ID:", orgId);
+      console.log("DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
       if (!orgId) {
-        console.warn("No org mapped for WhatsApp phone_number_id", item.phoneNumberId);
+        console.error("No organization mapping found.");
         continue;
       }
 
+      console.log("Calling saveInboundMessage()");
       const { message, queueItem, isDuplicate } = await saveInboundMessage(orgId, item);
+      console.log("Message saved");
+      console.log(message);
+      console.log(queueItem);
 
+      console.log("Publishing event:", isDuplicate ? "duplicate_detected" : "message_received");
       await publishEvent({
         orgId,
         type: isDuplicate ? "duplicate_detected" : "message_received",
@@ -89,23 +107,31 @@ export async function POST(req: NextRequest) {
       });
 
       if (!isDuplicate && queueItem.id) {
+        console.log("Publishing event:", "message_queued");
         await publishEvent({
           orgId,
           type: "message_queued",
           messageId: message.id,
           meta: { queueId: queueItem.id },
         });
+        console.log("Queueing worker:", queueItem.id);
         enqueueWorkerProcessing(queueItem.id, origin);
         accepted.push(queueItem.id);
       }
     }
 
+    console.log("Webhook finished successfully");
     return NextResponse.json(
       { status: "EVENT_RECEIVED", queued: accepted.length },
       { status: 200 }
     );
   } catch (error) {
-    console.error("Webhook persistence error:", error);
+    console.error("========== WEBHOOK ERROR ==========");
+    console.error(error);
+    if (error instanceof Error) {
+      console.error(error.message);
+      console.error(error.stack);
+    }
     // Still 200 to avoid Meta retry storms when our infra is down mid-write;
     // message may be lost — prefer alerting over duplicate AI work.
     return NextResponse.json({ status: "EVENT_RECEIVED", error: "persist_failed" }, { status: 200 });

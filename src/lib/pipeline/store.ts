@@ -1,4 +1,11 @@
 import { getAdminDb } from "@/lib/firebase-admin";
+
+// Log environment on startup
+console.log({
+  FIREBASE_SERVICE_ACCOUNT_JSON: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
+  DEFAULT_ORG_ID: process.env.DEFAULT_ORG_ID,
+  NODE_ENV: process.env.NODE_ENV,
+});
 import type {
   AiExtractionRecord,
   Conversation,
@@ -19,6 +26,8 @@ export async function resolveOrgIdForWhatsApp(
   const db = getAdminDb();
 
   if (phoneNumberId) {
+    console.log("Searching whatsappConnections");
+    console.log("Phone Number ID:", phoneNumberId);
     const connSnap = await db
       .collection("whatsappConnections")
       .where("phoneNumberId", "==", phoneNumberId)
@@ -27,9 +36,12 @@ export async function resolveOrgIdForWhatsApp(
       .get();
 
     if (!connSnap.empty) {
+      console.log("Connections found:", connSnap.size);
+
       return connSnap.docs[0].data().orgId as string;
     }
 
+    console.log("Searching organizations");
     const orgSnap = await db
       .collection("organizations")
       .where("whatsappPhoneNumberId", "==", phoneNumberId)
@@ -37,10 +49,13 @@ export async function resolveOrgIdForWhatsApp(
       .get();
 
     if (!orgSnap.empty) {
+      console.log("Organizations found:", orgSnap.size);
+
       return orgSnap.docs[0].id;
     }
   }
 
+  console.log("Returning DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
   return process.env.DEFAULT_ORG_ID || null;
 }
 
@@ -152,96 +167,113 @@ export async function saveInboundMessage(
   orgId: string,
   normalized: NormalizedInboundMessage
 ): Promise<{ message: InboundMessage; queueItem: ProcessingQueueItem; isDuplicate: boolean }> {
-  const db = getAdminDb();
-  const now = new Date().toISOString();
-  const hash = contentHash(normalized.sender, normalized.text);
+  console.log("saveInboundMessage started");
+  try {
+    const db = getAdminDb();
+    console.log("Creating/updating conversation");
+    const now = new Date().toISOString();
+    const hash = contentHash(normalized.sender, normalized.text);
 
-  const byExternal = await findDuplicateByExternalId(orgId, normalized.externalId);
-  if (byExternal) {
-    return {
-      message: byExternal,
-      queueItem: {
-        id: "",
-        orgId,
-        messageId: byExternal.id,
-        attempts: 0,
-        maxAttempts: MAX_ATTEMPTS,
-        status: "completed",
-        scheduledAt: now,
-        createdAt: now,
-        updatedAt: now,
-      },
-      isDuplicate: true,
+    const byExternal = await findDuplicateByExternalId(orgId, normalized.externalId);
+    if (byExternal) {
+      return {
+        message: byExternal,
+        queueItem: {
+          id: "",
+          orgId,
+          messageId: byExternal.id,
+          attempts: 0,
+          maxAttempts: MAX_ATTEMPTS,
+          status: "completed",
+          scheduledAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        isDuplicate: true,
+      };
+    }
+
+    const byHash = await findDuplicateByContentHash(orgId, hash);
+    console.log("Writing whatsappMessages document");
+    const msgRef = db.collection("whatsappMessages").doc();
+    const conversationId = await upsertConversation({
+      orgId,
+      source: normalized.source,
+      participant: normalized.sender,
+      messageId: msgRef.id,
+    });
+
+    const message: InboundMessage = {
+      id: msgRef.id,
+      orgId,
+      source: normalized.source,
+      externalId: normalized.externalId,
+      sender: normalized.sender,
+      senderName: normalized.senderName,
+      text: normalized.text,
+      normalizedText: normalizeText(normalized.text),
+      type: normalized.type,
+      status: byHash ? "duplicate" : "pending",
+      contentHash: hash,
+      phoneNumberId: normalized.phoneNumberId,
+      conversationId,
+      rawPayload: normalized.rawPayload,
+      attachmentRefs: normalized.attachmentRefs,
+      createdAt: now,
+      updatedAt: now,
     };
-  }
 
-  const byHash = await findDuplicateByContentHash(orgId, hash);
-  const msgRef = db.collection("whatsappMessages").doc();
-  const conversationId = await upsertConversation({
-    orgId,
-    source: normalized.source,
-    participant: normalized.sender,
-    messageId: msgRef.id,
-  });
+    await msgRef.set(message);
+    console.log("whatsappMessages write complete");
 
-  const message: InboundMessage = {
-    id: msgRef.id,
-    orgId,
-    source: normalized.source,
-    externalId: normalized.externalId,
-    sender: normalized.sender,
-    senderName: normalized.senderName,
-    text: normalized.text,
-    normalizedText: normalizeText(normalized.text),
-    type: normalized.type,
-    status: byHash ? "duplicate" : "pending",
-    contentHash: hash,
-    phoneNumberId: normalized.phoneNumberId,
-    conversationId,
-    rawPayload: normalized.rawPayload,
-    attachmentRefs: normalized.attachmentRefs,
-    createdAt: now,
-    updatedAt: now,
-  };
+    if (byHash) {
+      return {
+        message,
+        queueItem: {
+          id: "",
+          orgId,
+          messageId: message.id,
+          attempts: 0,
+          maxAttempts: MAX_ATTEMPTS,
+          status: "completed",
+          scheduledAt: now,
+          createdAt: now,
+          updatedAt: now,
+        },
+        isDuplicate: true,
+      };
+    }
 
-  await msgRef.set(message);
-
-  if (byHash) {
-    return {
-      message,
-      queueItem: {
-        id: "",
-        orgId,
-        messageId: message.id,
-        attempts: 0,
-        maxAttempts: MAX_ATTEMPTS,
-        status: "completed",
-        scheduledAt: now,
-        createdAt: now,
-        updatedAt: now,
-      },
-      isDuplicate: true,
+    console.log("Writing processingQueue document");
+    const queueRef = db.collection("processingQueue").doc();
+    const queueItem: ProcessingQueueItem = {
+      id: queueRef.id,
+      orgId,
+      messageId: message.id,
+      attempts: 0,
+      maxAttempts: MAX_ATTEMPTS,
+      status: "pending",
+      scheduledAt: now,
+      createdAt: now,
+      updatedAt: now,
     };
+
+    await queueRef.set(queueItem);
+    console.log("processingQueue write complete");
+    await msgRef.update({ status: "queued", updatedAt: now });
+    console.log("saveInboundMessage completed");
+    return { message: { ...message, status: "queued" }, queueItem, isDuplicate: false };
+  } catch (error) {
+    console.error("========== SAVE INBOUND MESSAGE ERROR ==========");
+    console.error(error);
+    if (error instanceof Error) {
+      console.error(error.message);
+      console.error(error.stack);
+    }
+    throw error;
   }
-
-  const queueRef = db.collection("processingQueue").doc();
-  const queueItem: ProcessingQueueItem = {
-    id: queueRef.id,
-    orgId,
-    messageId: message.id,
-    attempts: 0,
-    maxAttempts: MAX_ATTEMPTS,
-    status: "pending",
-    scheduledAt: now,
-    createdAt: now,
-    updatedAt: now,
-  };
-
-  await queueRef.set(queueItem);
-  await msgRef.update({ status: "queued", updatedAt: now });
-
-  return { message: { ...message, status: "queued" }, queueItem, isDuplicate: false };
 }
+// Duplicate saveInboundMessage implementation removed
 
 export async function writeProcessingLog(input: Omit<ProcessingLog, "id" | "createdAt">) {
   const db = getAdminDb();
