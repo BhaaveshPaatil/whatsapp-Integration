@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
       const adminAuth = getAuth(getAdminApp());
       const decoded = await adminAuth.verifyIdToken(token);
       uid = decoded.uid;
-    } catch (authErr: any) {
-      return NextResponse.json({ error: `Authentication failed: ${authErr.message}` }, { status: 401 });
+    } catch (authErr: unknown) {
+      const message = authErr instanceof Error ? authErr.message : "Unknown authentication error";
+      return NextResponse.json({ error: `Authentication failed: ${message}` }, { status: 401 });
     }
 
     // 2. Parse and validate body
@@ -89,9 +90,10 @@ export async function POST(req: NextRequest) {
           );
         }
         displayPhoneNumber = metaData.display_phone_number || metaData.verified_name || "WhatsApp Business Number";
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "Network error";
         return NextResponse.json(
-          { error: `Failed to contact Meta API: ${err.message || "Network error"}` },
+          { error: `Failed to contact Meta API: ${message}` },
           { status: 500 }
         );
       }
@@ -104,7 +106,7 @@ export async function POST(req: NextRequest) {
 
     const now = new Date().toISOString();
 
-    const orgUpdates: Record<string, any> = {
+    const orgUpdates: Record<string, unknown> = {
       whatsappConfigured: true,
       whatsappPhoneNumberId,
       whatsappBusinessAccountId,
@@ -140,9 +142,10 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({ success: true, displayPhoneNumber }, { status: 200 });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("========== WHATSAPP CONFIG ERROR ==========");
     console.error(error);
-    return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "Internal Server Error";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -48,7 +48,7 @@ export default function WhatsAppPage() {
 
   const isConfigured = organization?.whatsappConfigured || false;
   const phoneNumberId = organization?.whatsappPhoneNumberId || "—";
-  const businessAccountId = (organization as any)?.whatsappBusinessAccountId || "—";
+  const businessAccountId = organization?.whatsappBusinessAccountId || "—";
 
   useEffect(() => {
     if (!user?.orgId) return;
@@ -86,7 +86,7 @@ export default function WhatsAppPage() {
         body: JSON.stringify({
           orgId: organization.id,
           whatsappPhoneNumberId: organization.whatsappPhoneNumberId || "",
-          whatsappBusinessAccountId: (organization as any)?.whatsappBusinessAccountId || "",
+          whatsappBusinessAccountId: organization?.whatsappBusinessAccountId || "",
           whatsappAccessToken: "test", // will hit simulated path
           orgName: organization.name,
         }),
@@ -97,8 +97,8 @@ export default function WhatsAppPage() {
       } else {
         setTestResult(`❌ ${data.error || "Connection test failed"}`);
       }
-    } catch (err: any) {
-      setTestResult(`❌ ${err.message}`);
+    } catch (err: unknown) {
+      setTestResult(`❌ ${err instanceof Error ? err.message : "Connection test failed"}`);
     } finally {
       setIsTesting(false);
     }

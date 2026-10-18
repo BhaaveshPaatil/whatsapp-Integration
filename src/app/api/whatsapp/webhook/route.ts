@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
  */
 import crypto from "crypto";
 
-function logStructured(level: "info" | "warn" | "error", message: string, meta: Record<string, any> = {}) {
+function logStructured(level: "info" | "warn" | "error", message: string, meta: Record<string, unknown> = {}) {
   console.log(
     JSON.stringify({
       timestamp: new Date().toISOString(),
@@ -171,11 +171,11 @@ export async function POST(req: NextRequest) {
       { status: "EVENT_RECEIVED", queued: accepted.length },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error: unknown) {
     logStructured("error", "Error encountered processing WhatsApp webhook persistence", {
       requestId,
-      errorMessage: error.message,
-      errorStack: error.stack,
+      errorMessage: error instanceof Error ? error.message : String(error),
+      errorStack: error instanceof Error ? error.stack : undefined,
       durationMs: Date.now() - startTime,
     });
     return NextResponse.json({ status: "EVENT_RECEIVED", error: "persist_failed" }, { status: 200 });

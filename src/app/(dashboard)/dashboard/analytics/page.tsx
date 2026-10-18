@@ -66,7 +66,6 @@ export default function AnalyticsPage() {
 
   const sourceData = useMemo(() => {
     const ai = events.filter((e) => e.type === "task_created").length;
-    const total = Math.max(ai, 1);
     // Manual creates are not yet emitted from the client — show AI share of pipeline events
     const manualProxy = Math.max(
       0,

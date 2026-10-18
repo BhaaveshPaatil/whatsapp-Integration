@@ -1,82 +1,270 @@
+
 rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function signedIn() {
       return request.auth != null;
     }
 
-    function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function userExists(uid) {
+      return exists(userPath(uid));
     }
 
     function userOrgId() {
-      return signedIn() ? userDoc().data.orgId : "";
+      return signedIn() && userExists(request.auth.uid)
+        ? get(userPath(request.auth.uid)).data.orgId
+        : "";
     }
 
     function userRole() {
-      return signedIn() ? userDoc().data.role : "";
+      return signedIn() && userExists(request.auth.uid)
+        ? get(userPath(request.auth.uid)).data.role
+        : "";
     }
 
     function sameOrg(orgId) {
-      return signedIn() && userOrgId() == orgId;
+      return signedIn() &&
+        userExists(request.auth.uid) &&
+        userOrgId() == orgId &&
+        orgId != "";
     }
 
     function orgAdmin(orgId) {
       return sameOrg(orgId) && userRole() == "admin";
     }
 
+    function validRole(role) {
+      return role in ["admin", "team_member"];
+    }
+
+    function ownsOrganization(orgId) {
+      return exists(
+        /databases/$(database)/documents/organizations/$(orgId)
+      ) &&
+      get(
+        /databases/$(database)/documents/organizations/$(orgId)
+      ).data.ownerId == request.auth.uid;
+    }
+
+    function validInviteAcceptance(inviteId, uid) {
+      let invitePath =
+        /databases/$(database)/documents/organizationInvites/$(inviteId);
+      let invite = get(invitePath).data;
+      let updatedInvite = getAfter(invitePath).data;
+      let updatedUser = getAfter(userPath(uid)).data;
+
+      return exists(invitePath) &&
+        invite.status == "pending" &&
+        invite.email == request.auth.token.email.lower() &&
+        updatedInvite.status == "accepted" &&
+        updatedInvite.acceptedBy == uid &&
+        updatedInvite.orgId == invite.orgId &&
+        updatedUser.orgId == invite.orgId &&
+        updatedUser.role == invite.role &&
+        updatedUser.acceptedInviteId == inviteId;
+    }
+
+    // USER PROFILES
     match /users/{userId} {
-      allow read: if signedIn() && (request.auth.uid == userId || sameOrg(resource.data.orgId));
-      allow create: if signedIn() && request.auth.uid == userId;
-      allow update: if signedIn() && (
+      allow read: if signedIn() && (
         request.auth.uid == userId ||
-        orgAdmin(resource.data.orgId) ||
-        orgAdmin(request.resource.data.orgId)
+        sameOrg(resource.data.orgId)
       );
+
+      // New profiles must not grant themselves admin access.
+      // Update createUserProfile() to use role: "team_member".
+      allow create: if signedIn() &&
+        request.auth.uid == userId &&
+        request.resource.data.uid == userId &&
+        request.resource.data.role == "team_member" &&
+        request.resource.data.orgId == "" &&
+        request.resource.data.email ==
+          request.auth.token.email.lower();
+
+      allow update: if signedIn() && (
+
+        // User may update basic profile fields, but not their role
+        // or organization membership through a normal profile edit.
+        (
+          request.auth.uid == userId &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "displayName",
+              "photoURL",
+              "phoneNumber",
+              "updatedAt"
+            ])
+        )
+
+        ||
+
+        // Organization creator may become admin only for an
+        // organization they own, when currently unassigned.
+        (
+          request.auth.uid == userId &&
+          resource.data.orgId == "" &&
+          request.resource.data.role == "admin" &&
+          request.resource.data.orgId != "" &&
+          ownsOrganization(request.resource.data.orgId) &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "orgId",
+              "role",
+              "updatedAt"
+            ])
+        )
+
+        ||
+
+        // Secure invitation acceptance must update the user and
+        // invitation in the same batch and set acceptedInviteId.
+        (
+          request.auth.uid == userId &&
+          resource.data.orgId == "" &&
+          request.resource.data.acceptedInviteId is string &&
+          validInviteAcceptance(
+            request.resource.data.acceptedInviteId,
+            userId
+          ) &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "orgId",
+              "role",
+              "updatedAt",
+              "displayName",
+              "acceptedInviteId"
+            ])
+        )
+
+        ||
+
+        // Existing organization admins can manage membership,
+        // but cannot change a user's UID or email.
+        (
+          orgAdmin(resource.data.orgId) &&
+          request.resource.data.uid == resource.data.uid &&
+          request.resource.data.email == resource.data.email &&
+          validRole(request.resource.data.role) &&
+          request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasOnly([
+              "orgId",
+              "role",
+              "updatedAt",
+              "removedFromOrgId"
+            ])
+        )
+      );
+
       allow delete: if false;
     }
 
+    // ORGANIZATIONS
     match /organizations/{orgId} {
-      // Members of the org, or the owner (covers race right after create).
       allow read: if sameOrg(orgId) ||
-        (signedIn() && resource.data.ownerId == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.ownerId == request.auth.uid;
-      allow update: if orgAdmin(orgId);
+        (
+          signedIn() &&
+          resource.data.ownerId == request.auth.uid
+        );
+
+      allow create: if signedIn() &&
+        request.resource.data.ownerId == request.auth.uid &&
+        request.resource.data.id == orgId &&
+        request.resource.data.name is string &&
+        request.resource.data.name.size() > 0;
+
+      allow update: if orgAdmin(orgId) &&
+        request.resource.data.ownerId == resource.data.ownerId &&
+        request.resource.data.id == resource.data.id;
+
       allow delete: if false;
     }
 
+    // TASKS
     match /tasks/{taskId} {
       allow read: if sameOrg(resource.data.orgId);
-      allow create: if sameOrg(request.resource.data.orgId);
-      allow update, delete: if sameOrg(resource.data.orgId);
+
+      allow create: if sameOrg(request.resource.data.orgId) &&
+        request.resource.data.createdBy == request.auth.uid;
+
+      allow update: if sameOrg(resource.data.orgId) &&
+        request.resource.data.orgId == resource.data.orgId;
+
+      allow delete: if sameOrg(resource.data.orgId);
     }
 
+    // ORGANIZATION INVITATIONS
     match /organizationInvites/{inviteId} {
-      // Invitee can read own invites; admin can read org invites.
       allow read: if signedIn() && (
         orgAdmin(resource.data.orgId) ||
-        resource.data.email == request.auth.token.email ||
         resource.data.email == request.auth.token.email.lower()
       );
-      allow create: if orgAdmin(request.resource.data.orgId);
-      // Admins manage invites; invitee may accept their own pending invite
-      allow update: if orgAdmin(request.resource.data.orgId) || (
-        signedIn() &&
-        (resource.data.email == request.auth.token.email ||
-         resource.data.email == request.auth.token.email.lower()) &&
+
+      allow create: if orgAdmin(request.resource.data.orgId) &&
+        request.resource.data.email is string &&
+        validRole(request.resource.data.role) &&
+        request.resource.data.status == "pending" &&
+        request.resource.data.invitedBy == request.auth.uid;
+
+      // Admins may manage invitations. Invitees may only accept
+      // their own pending invitation, with a matching profile batch.
+      allow update: if (
+        orgAdmin(resource.data.orgId) &&
+        request.resource.data.orgId == resource.data.orgId &&
         request.resource.data.email == resource.data.email &&
-        request.resource.data.orgId == resource.data.orgId
+        request.resource.data.invitedBy == resource.data.invitedBy
+      ) || (
+        signedIn() &&
+        resource.data.status == "pending" &&
+        resource.data.email == request.auth.token.email.lower() &&
+        request.resource.data.email == resource.data.email &&
+        request.resource.data.orgId == resource.data.orgId &&
+        request.resource.data.role == resource.data.role &&
+        request.resource.data.status == "accepted" &&
+        request.resource.data.acceptedBy == request.auth.uid &&
+        getAfter(userPath(request.auth.uid)).data.orgId ==
+          resource.data.orgId &&
+        getAfter(userPath(request.auth.uid)).data.role ==
+          resource.data.role &&
+        getAfter(userPath(request.auth.uid)).data.acceptedInviteId ==
+          inviteId &&
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly([
+            "status",
+            "acceptedAt",
+            "acceptedBy",
+            "updatedAt"
+          ])
       );
+
       allow delete: if false;
     }
 
+    // TEAMS
     match /teams/{teamId} {
       allow read: if sameOrg(resource.data.orgId);
-      allow create, update, delete: if orgAdmin(request.resource.data.orgId);
+
+      allow create: if orgAdmin(request.resource.data.orgId) &&
+        request.resource.data.id == teamId;
+
+      allow update, delete: if orgAdmin(resource.data.orgId) &&
+        (
+          request.method == "delete" ||
+          request.resource.data.orgId == resource.data.orgId
+        );
     }
 
-    // Pipeline collections: clients read; Admin SDK writes
+    // WHATSAPP PIPELINE: client reads only; server Admin SDK writes
     match /whatsappMessages/{id} {
       allow read: if sameOrg(resource.data.orgId);
       allow write: if false;
@@ -84,7 +272,9 @@ service cloud.firestore {
 
     match /whatsappConnections/{id} {
       allow read: if orgAdmin(resource.data.orgId);
-      allow create, update: if orgAdmin(request.resource.data.orgId);
+      allow create: if orgAdmin(request.resource.data.orgId);
+      allow update: if orgAdmin(resource.data.orgId) &&
+        request.resource.data.orgId == resource.data.orgId;
       allow delete: if false;
     }
 
@@ -113,15 +303,45 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // NOTIFICATIONS
     match /notifications/{id} {
-      allow read: if signedIn() && resource.data.userId == request.auth.uid;
-      allow update: if signedIn() && resource.data.userId == request.auth.uid;
+      allow read: if signedIn() &&
+        resource.data.userId == request.auth.uid;
+
+      allow update: if signedIn() &&
+        resource.data.userId == request.auth.uid &&
+        request.resource.data.userId == resource.data.userId &&
+        request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(["read", "updatedAt"]);
+
       allow create, delete: if false;
     }
 
+    // COMMENTS: authorization follows the referenced task's organization
     match /task_comments/{id} {
-      allow read: if signedIn();
-      allow create: if signedIn();
+      function taskExists(taskId) {
+        return exists(
+          /databases/$(database)/documents/tasks/$(taskId)
+        );
+      }
+
+      function taskOrg(taskId) {
+        return get(
+          /databases/$(database)/documents/tasks/$(taskId)
+        ).data.orgId;
+      }
+
+      allow read: if signedIn() &&
+        taskExists(resource.data.taskId) &&
+        sameOrg(taskOrg(resource.data.taskId));
+
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid &&
+        request.resource.data.taskId is string &&
+        taskExists(request.resource.data.taskId) &&
+        sameOrg(taskOrg(request.resource.data.taskId));
+
       allow update, delete: if false;
     }
 

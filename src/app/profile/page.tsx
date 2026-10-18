@@ -48,7 +48,7 @@ export default function ProfilePage() {
       });
 
       setMessage("Profile updated successfully!");
-    } catch (err: any) {
+    } catch {
       setMessage("Failed to update profile.");
     } finally {
       setIsSubmitting(false);

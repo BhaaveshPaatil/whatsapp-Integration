@@ -1,6 +1,6 @@
 import { Task } from "@/types";
 import { cn } from "@/lib/utils";
-import { Calendar, User, Clock, CheckCircle2 } from "lucide-react";
+
 
 interface RecentTasksWidgetProps {
   tasks: Task[];

@@ -69,7 +69,7 @@ export async function sendWhatsAppMessage(
     } else {
       return { success: false, error: data.error?.message || "WhatsApp API error" };
     }
-  } catch (err: any) {
-    return { success: false, error: err.message };
+  } catch (err: unknown) {
+    return { success: false, error: err instanceof Error ? err.message : "WhatsApp API error" };
   }
 }

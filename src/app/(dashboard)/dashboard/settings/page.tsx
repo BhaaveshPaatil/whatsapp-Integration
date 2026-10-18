@@ -19,7 +19,7 @@ export default function SettingsPage() {
   const [orgName, setOrgName] = useState(organization?.name || "");
   const [whatsappPhoneId, setWhatsappPhoneId] = useState(organization?.whatsappPhoneNumberId || "");
   const [whatsappBusinessAccountId, setWhatsappBusinessAccountId] = useState(
-    (organization as any)?.whatsappBusinessAccountId || ""
+    organization?.whatsappBusinessAccountId || ""
   );
   const [whatsappToken, setWhatsappToken] = useState("");
   const [geminiKey, setGeminiKey] = useState(organization?.geminiApiKey || "");
@@ -37,7 +37,7 @@ export default function SettingsPage() {
     if (!organization) return;
     setOrgName(organization.name || "");
     setWhatsappPhoneId(organization.whatsappPhoneNumberId || "");
-    setWhatsappBusinessAccountId((organization as any)?.whatsappBusinessAccountId || "");
+    setWhatsappBusinessAccountId(organization?.whatsappBusinessAccountId || "");
     setGeminiKey(organization.geminiApiKey || "");
     setConnectionStatus(organization.whatsappConfigured ? "connected" : "idle");
     // Don't populate the token field — it's encrypted server-side
