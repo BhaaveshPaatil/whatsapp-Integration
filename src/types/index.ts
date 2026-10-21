@@ -47,6 +47,7 @@ export interface Task {
   createdAt: Timestamp;
   updatedAt: Timestamp;
   source?: "manual" | "whatsapp" | "ai_extracted";
+  sourceMessageId?: string | null;
 }
 
 export interface Team {

@@ -1,11 +1,17 @@
 import crypto from "crypto";
 
 const ALGORITHM = "aes-256-cbc";
-// Derive 32-byte key from ENCRYPTION_KEY or PIPELINE_WORKER_SECRET
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || process.env.PIPELINE_WORKER_SECRET || "fallback-dev-encryption-key-32b";
+// Derive 32-byte key from ENCRYPTION_KEY (required for server-side token encryption)
+const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || process.env.PIPELINE_WORKER_SECRET;
 
 function getSecretKey(): Buffer {
-  return crypto.createHash("sha256").update(ENCRYPTION_KEY).digest();
+  const key = ENCRYPTION_KEY;
+  if (!key) {
+    throw new Error(
+      "ENCRYPTION_KEY environment variable is required. Set it to a secure random string for encrypting WhatsApp access tokens."
+    );
+  }
+  return crypto.createHash("sha256").update(key).digest();
 }
 
 /**

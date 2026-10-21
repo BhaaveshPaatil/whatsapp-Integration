@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (settled) return;
 
       const current = useAuthStore.getState().user;
-      const firebaseUser = auth.currentUser;
+      const firebaseUser = auth?.currentUser;
 
       // Never mark logged-out while Firebase still has a session.
       if (!current && firebaseUser) {

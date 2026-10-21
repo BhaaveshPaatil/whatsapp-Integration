@@ -1,0 +1,373 @@
+import { extractStructuredAction } from "@/lib/services/gemini";
+import { routeByConfidence, CONFIDENCE_AUTO, CONFIDENCE_REVIEW } from "@/lib/pipeline/confidence";
+import {
+  normalizeText,
+  contentHash,
+  textSimilarity,
+} from "@/lib/pipeline/normalize";
+import { whatsappConnector } from "@/lib/pipeline/connectors";
+import { encrypt, decrypt } from "@/lib/crypto";
+
+// Mock fetch globally for Gemini tests
+const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>;
+(globalThis as unknown as { fetch?: typeof fetch }).fetch = mockFetch;
+
+beforeEach(() => {
+  mockFetch.mockClear();
+  // Ensure no Gemini API key by default for fallback tests
+  delete process.env.GEMINI_API_KEY;
+});
+
+describe("Gemini AI Extraction", () => {
+  it("should use fallback extraction when no API key is configured", async () => {
+    const result = await extractStructuredAction("hello");
+
+    expect(result.intent).toBe("ignore");
+    expect(result.confidenceScore).toBeGreaterThan(0);
+  });
+
+  it("should fallback to heuristic extraction for greetings", async () => {
+    const result = await extractStructuredAction("hi there");
+
+    expect(result.intent).toBe("ignore");
+    expect(result.confidenceScore).toBe(0.9);
+  });
+
+  it("should extract create_task intent from actionable message", async () => {
+    const result = await extractStructuredAction(
+      "Please deploy the database hotfix before tomorrow 3 PM and assign to Alex"
+    );
+
+    expect(result.intent).toBe("create_task");
+    expect(result.title.length).toBeGreaterThan(0);
+    expect(result.priority).toBeDefined();
+    expect(result.confidenceScore).toBeGreaterThanOrEqual(0);
+    expect(result.confidenceScore).toBeLessThanOrEqual(1);
+  });
+
+  it("should detect urgent priority", async () => {
+    const result = await extractStructuredAction(
+      "This is urgent, fix the critical bug ASAP"
+    );
+
+    expect(result.priority).toBe("urgent");
+  });
+
+  it("should detect high priority", async () => {
+    const result = await extractStructuredAction(
+      "This is important, please update the documentation"
+    );
+
+    expect(result.priority).toBe("high");
+  });
+
+  it("should detect close_task intent", async () => {
+    const result = await extractStructuredAction("the task is done and completed");
+
+    expect(result.intent).toBe("close_task");
+  });
+
+  it("should detect schedule_meeting intent", async () => {
+    const result = await extractStructuredAction("let's schedule a meeting for tomorrow");
+
+    expect(result.intent).toBe("schedule_meeting");
+  });
+
+  it("should detect ask_question intent for questions", async () => {
+    const result = await extractStructuredAction("what is the status of the project?");
+
+    expect(result.intent).toBe("ask_question");
+  });
+
+  it("should detect create_note intent", async () => {
+    const result = await extractStructuredAction("note: remember to check the logs");
+
+    expect(result.intent).toBe("create_note");
+  });
+});
+
+describe("Gemini with API key (mocked)", () => {
+  it("should call Gemini API and return structured action", async () => {
+    process.env.GEMINI_API_KEY = "test-api-key";
+
+    const mockResponse = {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  intent: "create_task",
+                  title: "Fix database issue",
+                  description: "The database is slow",
+                  priority: "high",
+                  dueDate: "2026-10-25",
+                  assigneeName: "Alex",
+                  labels: ["bug", "database"],
+                  relatedTaskHint: null,
+                  confidenceScore: 0.95,
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    };
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockResponse,
+    } as unknown as Response);
+
+    const result = await extractStructuredAction("fix the database");
+
+    expect(result.intent).toBe("create_task");
+    expect(result.title).toBe("Fix database issue");
+    expect(result.priority).toBe("high");
+    expect(result.confidenceScore).toBe(0.95);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("should handle malformed JSON from Gemini gracefully", async () => {
+    process.env.GEMINI_API_KEY = "test-api-key";
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [{ content: { parts: [{ text: "not json" }] } }],
+      }),
+    } as unknown as Response);
+
+    const result = await extractStructuredAction("some text");
+
+    // Should fall back to heuristic extraction
+    expect(result.intent).toBeDefined();
+    expect(result.title).toBeDefined();
+  });
+
+  it("should handle Gemini API error gracefully", async () => {
+    process.env.GEMINI_API_KEY = "test-api-key";
+
+    mockFetch.mockRejectedValueOnce(new Error("API unavailable"));
+
+    const result = await extractStructuredAction("some text");
+
+    // Should fall back to heuristic extraction
+    expect(result.intent).toBeDefined();
+  });
+
+  it("should sanitize invalid intent to create_task", async () => {
+    process.env.GEMINI_API_KEY = "test-api-key";
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    intent: "invalid_intent",
+                    title: "Test",
+                    confidenceScore: 0.5,
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    } as unknown as Response);
+
+    const result = await extractStructuredAction("test text");
+
+    expect(result.intent).toBe("create_task");
+  });
+});
+
+describe("Confidence Routing", () => {
+  it("should route high confidence to auto", () => {
+    expect(routeByConfidence(0.9)).toBe("auto");
+    expect(routeByConfidence(CONFIDENCE_AUTO)).toBe("auto");
+    expect(routeByConfidence(1.0)).toBe("auto");
+  });
+
+  it("should route medium confidence to needs_review", () => {
+    expect(routeByConfidence(0.7)).toBe("needs_review");
+    expect(routeByConfidence(CONFIDENCE_REVIEW)).toBe("needs_review");
+    expect(routeByConfidence(0.84)).toBe("needs_review");
+  });
+
+  it("should route low confidence to ignore", () => {
+    expect(routeByConfidence(0.5)).toBe("ignore");
+    expect(routeByConfidence(0.0)).toBe("ignore");
+    expect(routeByConfidence(0.59)).toBe("ignore");
+  });
+});
+
+describe("Text Normalization", () => {
+  it("should normalize text by lowercasing and collapsing whitespace", () => {
+    expect(normalizeText("  Hello   World  ")).toBe("hello world");
+    expect(normalizeText("HELLO")).toBe("hello");
+  });
+
+  it("should remove special characters", () => {
+    expect(normalizeText("Hello, World!")).toBe("hello world");
+  });
+
+  it("should compute content hash", () => {
+    const hash1 = contentHash("+1234567890", "Hello world");
+    const hash2 = contentHash("+1234567890", "Hello world");
+    const hash3 = contentHash("+1234567890", "Different message");
+
+    expect(hash1).toBe(hash2); // Same input = same hash
+    expect(hash1).not.toBe(hash3); // Different input = different hash
+    expect(hash1.length).toBe(64); // SHA-256 hex length
+  });
+
+  it("should compute text similarity", () => {
+    expect(textSimilarity("hello world", "hello world")).toBe(1);
+    expect(textSimilarity("hello world", "goodbye world")).toBeGreaterThan(0);
+    expect(textSimilarity("hello", "goodbye")).toBe(0);
+    expect(textSimilarity("", "test")).toBe(0);
+  });
+});
+
+describe("WhatsApp Connector", () => {
+  it("should return empty array for non-whatsapp payloads", () => {
+    const result = whatsappConnector.normalize({ object: "other" });
+    expect(result).toEqual([]);
+  });
+
+  it("should normalize a text message webhook", () => {
+    const payload = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "123456789" },
+                contacts: [{ profile: { name: "John Doe" }, wa_id: "1234567890" }],
+                messages: [
+                  {
+                    id: "msg_123",
+                    from: "1234567890",
+                    timestamp: "1234567890",
+                    type: "text",
+                    text: { body: "Hello, please fix this bug" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = whatsappConnector.normalize(payload);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].source).toBe("whatsapp");
+    expect(result[0].externalId).toBe("msg_123");
+    expect(result[0].sender).toBe("1234567890");
+    expect(result[0].senderName).toBe("John Doe");
+    expect(result[0].text).toBe("Hello, please fix this bug");
+    expect(result[0].type).toBe("text");
+    expect(result[0].phoneNumberId).toBe("123456789");
+  });
+
+  it("should normalize an audio message as text type", () => {
+    const payload = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "123" },
+                contacts: [{ profile: { name: "John" }, wa_id: "123" }],
+                messages: [
+                  {
+                    id: "msg_audio",
+                    from: "123",
+                    type: "audio",
+                    audio: { id: "audio_1" },
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = whatsappConnector.normalize(payload);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe("audio");
+    expect(result[0].text).toBe("[voice note]");
+    expect(result[0].attachmentRefs).toContain("audio:audio_1");
+  });
+
+  it("should skip messages without id or from", () => {
+    const payload = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                messages: [
+                  { id: "msg_1", from: "123", type: "text", text: { body: "valid" } },
+                  { type: "text", text: { body: "invalid" } }, // missing id and from
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = whatsappConnector.normalize(payload);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].externalId).toBe("msg_1");
+  });
+});
+
+describe("Encryption", () => {
+  const originalEnv = process.env.ENCRYPTION_KEY;
+
+  beforeEach(() => {
+    process.env.ENCRYPTION_KEY = "test-encryption-key-32-bytes-long";
+  });
+
+  afterEach(() => {
+    process.env.ENCRYPTION_KEY = originalEnv;
+  });
+
+  it("should encrypt and decrypt text correctly", () => {
+    const original = "sensitive-access-token";
+    const encrypted = encrypt(original);
+    const decrypted = decrypt(encrypted);
+
+    expect(encrypted).not.toBe(original);
+    expect(encrypted).toContain(":"); // iv:encrypted format
+    expect(decrypted).toBe(original);
+  });
+
+  it("should handle empty string encryption", () => {
+    expect(encrypt("")).toBe("");
+  });
+
+  it("should handle empty string decryption", () => {
+    expect(decrypt("")).toBe("");
+  });
+
+  it("should return input as-is for non-encrypted text (backward compat)", () => {
+    const result = decrypt("plain-text-without-colon");
+    expect(result).toBe("plain-text-without-colon");
+  });
+});

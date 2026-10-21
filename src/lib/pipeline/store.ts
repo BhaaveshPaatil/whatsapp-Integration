@@ -1,11 +1,5 @@
 import { getAdminDb } from "@/lib/firebase-admin";
 
-// Log environment on startup
-console.log({
-  FIREBASE_SERVICE_ACCOUNT_JSON: !!process.env.FIREBASE_SERVICE_ACCOUNT_JSON,
-  DEFAULT_ORG_ID: process.env.DEFAULT_ORG_ID,
-  NODE_ENV: process.env.NODE_ENV,
-});
 import type {
   AiExtractionRecord,
   Conversation,

@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-// Debug banner for webhook entry
-console.log("========== WHATSAPP WEBHOOK ==========");
+import { createRateLimiter as whatsappRateLimit } from "@/lib/rate-limit";
 import { whatsappConnector } from "@/lib/pipeline/connectors";
 import { publishEvent } from "@/lib/pipeline/events";
 import { resolveOrgIdForWhatsApp, saveInboundMessage } from "@/lib/pipeline/store";
@@ -10,6 +8,11 @@ import { isAdminConfigured } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const webhookRateLimit = whatsappRateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 100,
+});
 
 export async function GET(req: NextRequest) {
   const result = await whatsappConnector.verifyWebhook!({
@@ -43,6 +46,11 @@ function logStructured(level: "info" | "warn" | "error", message: string, meta: 
 }
 
 export async function POST(req: NextRequest) {
+  const rateLimitResponse = webhookRateLimit(req);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   const startTime = Date.now();
   const requestId = crypto.randomUUID();
 

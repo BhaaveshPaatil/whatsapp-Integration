@@ -33,6 +33,7 @@ export interface CreateTaskInput {
   createdBy: string;
   source?: Task["source"];
   labels?: string[];
+  sourceMessageId?: string | null;
 }
 
 export type UpdateTaskInput = Partial<
@@ -79,6 +80,7 @@ function mapTaskDoc(
     createdAt: data.createdAt,
     updatedAt: data.updatedAt,
     source: data.source,
+    sourceMessageId: data.sourceMessageId || null,
   };
 }
 
@@ -122,6 +124,7 @@ export async function createTask(input: CreateTaskInput): Promise<Task> {
       updatedAt: now,
       labels: input.labels || [],
       source: input.source || "manual",
+      sourceMessageId: input.sourceMessageId || null,
     };
 
     await setDoc(docRef, taskData);

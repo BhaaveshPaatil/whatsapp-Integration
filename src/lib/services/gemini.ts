@@ -157,6 +157,7 @@ function fallbackExtraction(text: string): StructuredAiAction {
   if (/\b(done|completed|close|finished)\b/.test(lower)) intent = "close_task";
   else if (/\b(update|change|move|reschedule|instead)\b/.test(lower)) intent = "update_task";
   else if (/\b(meeting|call|schedule)\b/.test(lower)) intent = "schedule_meeting";
+  else if (/\b(note|remember|memo)\b/.test(lower)) intent = "create_note";
   else if (/\?$/.test(text.trim())) intent = "ask_question";
 
   return {

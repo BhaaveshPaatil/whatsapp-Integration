@@ -63,7 +63,7 @@ export default function SettingsPage() {
       setConnectionStatus("testing");
 
       // Get Firebase ID token for server auth
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await auth?.currentUser?.getIdToken();
       if (!idToken) {
         setError("Authentication error. Please log in again.");
         setIsSaving(false);

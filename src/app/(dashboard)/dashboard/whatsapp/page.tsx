@@ -71,7 +71,7 @@ export default function WhatsAppPage() {
     setIsTesting(true);
     setTestResult(null);
     try {
-      const idToken = await auth.currentUser?.getIdToken();
+      const idToken = await auth?.currentUser?.getIdToken();
       if (!idToken) {
         setTestResult("Authentication error. Please log in again.");
         return;

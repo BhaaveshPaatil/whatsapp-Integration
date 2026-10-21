@@ -21,6 +21,10 @@ export default function DashboardLayout({
   const [hasFirebaseUser, setHasFirebaseUser] = useState(false);
 
   useEffect(() => {
+    if (!auth) {
+      setFirebaseReady(true);
+      return;
+    }
     const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
       setHasFirebaseUser(Boolean(firebaseUser));
       setFirebaseReady(true);

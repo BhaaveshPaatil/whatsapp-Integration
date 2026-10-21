@@ -54,11 +54,11 @@ export function RecentTasksWidget({ tasks }: RecentTasksWidgetProps) {
               <div className="space-y-1 max-w-md">
                 <div className="flex items-center space-x-2">
                   <span className="text-sm font-medium text-foreground">{task.title}</span>
-                  {task.source === "whatsapp" && (
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border border-harbor-success/20 font-medium">
-                      WhatsApp
-                    </span>
-                  )}
+{(task.source === "whatsapp" || task.source === "ai_extracted") && (
+  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-harbor-success/10 text-emerald-700 dark:text-emerald-300 border border-harbor-success/20 font-medium">
+    WhatsApp
+  </span>
+)}
                 </div>
                 <p className="text-xs text-muted-foreground line-clamp-1">{task.description}</p>
               </div>

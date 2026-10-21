@@ -14,6 +14,15 @@ import { createUserProfile, getUserProfile } from "./user";
 import { getOrganization } from "./organization";
 import { UserProfile, Organization } from "@/types";
 
+function requireAuth() {
+  if (!auth) {
+    throw new Error(
+      "Firebase Authentication is not configured. Set NEXT_PUBLIC_FIREBASE_* environment variables."
+    );
+  }
+  return auth;
+}
+
 const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: "select_account" });
 googleProvider.addScope("email");
@@ -108,7 +117,8 @@ export async function signUpWithEmail(
   email: string,
   pass: string
 ): Promise<AuthSession> {
-  const cred = await createUserWithEmailAndPassword(auth, email, pass);
+  const firebaseAuth = requireAuth();
+  const cred = await createUserWithEmailAndPassword(firebaseAuth, email, pass);
   const userProfile = await createUserProfile(
     cred.user.uid,
     email.toLowerCase(),
@@ -121,13 +131,15 @@ export async function signInWithEmail(
   email: string,
   pass: string
 ): Promise<AuthSession> {
-  const cred = await signInWithEmailAndPassword(auth, email, pass);
+  const firebaseAuth = requireAuth();
+  const cred = await signInWithEmailAndPassword(firebaseAuth, email, pass);
   return resolveSession(cred.user);
 }
 
 export async function signInWithGoogle(): Promise<AuthSession> {
   try {
-    const cred = await signInWithPopup(auth, googleProvider);
+    const firebaseAuth = requireAuth();
+    const cred = await signInWithPopup(firebaseAuth, googleProvider);
     return await resolveSession(cred.user);
   } catch (error: unknown) {
     const code =
@@ -153,12 +165,14 @@ export async function signInWithGoogle(): Promise<AuthSession> {
 }
 
 export async function signInWithGoogleRedirect(): Promise<void> {
-  await signInWithRedirect(auth, googleProvider);
+  const firebaseAuth = requireAuth();
+  await signInWithRedirect(firebaseAuth, googleProvider);
 }
 
 export async function checkRedirectResult(): Promise<AuthSession | null> {
   try {
-    const cred = await getRedirectResult(auth);
+    const firebaseAuth = requireAuth();
+    const cred = await getRedirectResult(firebaseAuth);
     if (!cred?.user) return null;
     return await resolveSession(cred.user);
   } catch (error) {
@@ -168,7 +182,8 @@ export async function checkRedirectResult(): Promise<AuthSession | null> {
 }
 
 export async function logoutUser(): Promise<void> {
-  await signOut(auth);
+  const firebaseAuth = requireAuth();
+  await signOut(firebaseAuth);
 }
 
 export function subscribeToAuthChanges(
@@ -177,7 +192,8 @@ export function subscribeToAuthChanges(
     organization: Organization | null
   ) => void
 ) {
-  return onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+  const firebaseAuth = requireAuth();
+  return onAuthStateChanged(firebaseAuth, async (firebaseUser: FirebaseUser | null) => {
     if (!firebaseUser) {
       onAuthChange(null, null);
       return;

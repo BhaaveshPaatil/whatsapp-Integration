@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createRateLimiter } from "@/lib/rate-limit";
 import { extractStructuredAction } from "@/lib/services/gemini";
 
+const aiRateLimitMiddleware = createRateLimiter({
+  windowMs: 60 * 1000,
+  maxRequests: 30,
+});
+
 export async function POST(req: NextRequest) {
+  const rateLimitResponse = aiRateLimitMiddleware(req);
+  if (rateLimitResponse) {
+    return rateLimitResponse;
+  }
+
   try {
     const { text } = await req.json();
 
