@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
           queueId: queueItem.id,
         });
 
-        enqueueWorkerProcessing(queueItem.id, origin);
+        await enqueueWorkerProcessing(queueItem.id, origin);
         accepted.push(queueItem.id);
       }
     }
@@ -186,6 +186,6 @@ export async function POST(req: NextRequest) {
       errorStack: error instanceof Error ? error.stack : undefined,
       durationMs: Date.now() - startTime,
     });
-    return NextResponse.json({ status: "EVENT_RECEIVED", error: "persist_failed" }, { status: 200 });
+    return NextResponse.json({ status: "PERSIST_FAILED" }, { status: 500 });
   }
 }

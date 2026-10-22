@@ -58,6 +58,34 @@ export async function findBestMatchingTask(
   return best;
 }
 
+/**
+ * Resolve an AI-suggested assignee name to a real org member UID.
+ * Returns { assigneeId, assigneeName } if a match is found in the org.
+ */
+async function resolveAssignee(
+  orgId: string,
+  suggestedName?: string
+): Promise<{ assigneeId: string; assigneeName: string }> {
+  if (!suggestedName) return { assigneeId: "", assigneeName: "" };
+
+  const db = getAdminDb();
+  const membersSnap = await db.collection("users").where("orgId", "==", orgId).get();
+
+  const lowerSuggested = suggestedName.toLowerCase().trim();
+  const matches = membersSnap.docs.filter((d) => {
+    const name = (d.data().displayName || "").toLowerCase().trim();
+    return name === lowerSuggested || name.includes(lowerSuggested) || lowerSuggested.includes(name);
+  });
+
+  if (matches.length === 1) {
+    const matched = matches[0].data();
+    return { assigneeId: matches[0].id, assigneeName: matched.displayName || suggestedName };
+  }
+
+  // No match or ambiguous — store the suggested name but don't assign
+  return { assigneeId: "", assigneeName: suggestedName };
+}
+
 export async function createTaskFromAction(input: {
   orgId: string;
   action: StructuredAiAction;
@@ -72,6 +100,12 @@ export async function createTaskFromAction(input: {
     ? new Date(`${input.action.dueDate}T00:00:00`)
     : null;
 
+  // Validate assignee against org members
+  const { assigneeId, assigneeName } = await resolveAssignee(
+    input.orgId,
+    input.action.assigneeName
+  );
+
   await ref.set({
     id: ref.id,
     orgId: input.orgId,
@@ -79,8 +113,8 @@ export async function createTaskFromAction(input: {
     description: input.action.description,
     status: "todo",
     priority: input.action.priority,
-    assigneeId: "",
-    assigneeName: input.action.assigneeName || "",
+    assigneeId,
+    assigneeName,
     createdBy: input.createdBy,
     dueDate: dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null,
     labels: input.action.labels || [],

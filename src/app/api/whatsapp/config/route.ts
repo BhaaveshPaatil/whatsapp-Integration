@@ -72,14 +72,24 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 5. Verify token with Meta API (allow "simulated_" prefix for testing/development)
+    // 5. Verify token with Meta API
     let displayPhoneNumber = "Simulated Number";
-    if (whatsappAccessToken.startsWith("simulated_") || whatsappAccessToken === "test" || whatsappAccessToken === "dev") {
+    const isNonProd = process.env.NODE_ENV !== "production";
+    const isSimulated = whatsappAccessToken.startsWith("simulated_") || whatsappAccessToken === "test" || whatsappAccessToken === "dev";
+    if (isSimulated && isNonProd) {
       displayPhoneNumber = `+1555019${whatsappPhoneNumberId.slice(-4) || "9999"}`;
+    } else if (isSimulated && !isNonProd) {
+      return NextResponse.json(
+        { error: "Simulated tokens are not allowed in production" },
+        { status: 400 }
+      );
     } else {
       try {
-        const metaUrl = `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}?access_token=${whatsappAccessToken}`;
-        const metaRes = await fetch(metaUrl);
+        // Use Authorization header instead of query param to avoid token leaking into logs
+        const metaUrl = `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}`;
+        const metaRes = await fetch(metaUrl, {
+          headers: { Authorization: `Bearer ${whatsappAccessToken}` },
+        });
         const metaData = await metaRes.json();
         if (!metaRes.ok) {
           return NextResponse.json(
@@ -115,7 +125,8 @@ export async function POST(req: NextRequest) {
     };
 
     if (geminiApiKey !== undefined) {
-      orgUpdates.geminiApiKey = geminiApiKey;
+      // Encrypt the Gemini API key the same way as the WhatsApp token
+      orgUpdates.geminiApiKey = geminiApiKey ? encrypt(geminiApiKey) : "";
       orgUpdates.aiConfigured = Boolean(geminiApiKey);
     }
 

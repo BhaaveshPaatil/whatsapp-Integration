@@ -359,5 +359,11 @@ service cloud.firestore {
       allow read: if sameOrg(resource.data.orgId);
       allow write: if false;
     }
+
+    // CONTACTS: server writes via Admin SDK, org members can read
+    match /contacts/{id} {
+      allow read: if sameOrg(resource.data.orgId);
+      allow write: if false;
+    }
   }
 }

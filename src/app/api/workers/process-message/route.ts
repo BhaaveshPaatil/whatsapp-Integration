@@ -11,7 +11,10 @@ export const maxDuration = 60;
  * Invoked by the webhook after raw message persistence (or by a cron re-driver).
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.PIPELINE_WORKER_SECRET || "dev-pipeline-secret";
+  const secret = process.env.PIPELINE_WORKER_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "PIPELINE_WORKER_SECRET not configured" }, { status: 503 });
+  }
   const auth = req.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
 

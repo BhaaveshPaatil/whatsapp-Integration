@@ -158,11 +158,16 @@ export type AiIntent =
   | "ask_question"
   | "schedule_meeting"
   | "create_note"
+  | "create_contact"
+  | "create_both"
+  | "save_reminder"
   | "ignore";
 
 export type AiExtractionOutcome =
   | "auto_created"
   | "updated_existing"
+  | "contact_created"
+  | "both_created"
   | "needs_review"
   | "ignored"
   | "duplicate"
@@ -178,6 +183,8 @@ export interface StructuredAiAction {
   labels?: string[];
   confidenceScore: number;
   relatedTaskHint?: string;
+  /** True when extraction was done by heuristic fallback (no AI API call) */
+  isFallback?: boolean;
 }
 
 export interface AiExtractionRecord {
@@ -189,6 +196,7 @@ export interface AiExtractionRecord {
   action: StructuredAiAction;
   outcome: AiExtractionOutcome;
   taskId?: string;
+  contactId?: string;
   latencyMs: number;
   createdAt: string;
 }
@@ -247,4 +255,24 @@ export interface ProcessingLog {
   level: "info" | "warn" | "error";
   detail: string;
   createdAt: string;
+}
+
+/** Structured contact/candidate extracted from messages */
+export interface Contact {
+  id: string;
+  orgId: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  qualification?: string;
+  experience?: string;
+  skills?: string[];
+  businessName?: string;
+  notes?: string;
+  sourceMessageId?: string;
+  sourceExtractionId?: string;
+  /** Prevents AI from overwriting human-verified data */
+  verifiedFields?: string[];
+  createdAt: string;
+  updatedAt: string;
 }

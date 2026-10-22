@@ -1,7 +1,6 @@
 import { db } from "@/lib/firebase";
 import { doc, getDoc, onSnapshot, setDoc, updateDoc, type Unsubscribe } from "firebase/firestore";
 import { Organization } from "@/types";
-import { updateUserProfile } from "./user";
 
 const ORGS_COLLECTION = "organizations";
 
@@ -26,10 +25,15 @@ export async function createOrganization(
   const orgRef = doc(db, ORGS_COLLECTION, orgId);
   await setDoc(orgRef, newOrg);
 
-  // Update user with orgId and admin role
-  await updateUserProfile(ownerId, {
+  // Write orgId and role directly — updateUserProfile's allowedFields guard
+  // intentionally blocks orgId/role changes for profile edits, so we use
+  // updateDoc directly here. Firestore rules allow this when the user
+  // owns the organization and currently has orgId == "".
+  const userRef = doc(db, "users", ownerId);
+  await updateDoc(userRef, {
     orgId,
     role: "admin",
+    updatedAt: now,
   });
 
   return newOrg;

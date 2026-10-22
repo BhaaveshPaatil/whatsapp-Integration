@@ -13,7 +13,10 @@ export const dynamic = "force-dynamic";
  * without going through Meta (tests queue + AI worker end-to-end).
  */
 export async function POST(req: NextRequest) {
-  const secret = process.env.PIPELINE_WORKER_SECRET || "dev-pipeline-secret";
+  const secret = process.env.PIPELINE_WORKER_SECRET;
+  if (!secret) {
+    return NextResponse.json({ error: "PIPELINE_WORKER_SECRET not configured" }, { status: 503 });
+  }
   const auth = req.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
 

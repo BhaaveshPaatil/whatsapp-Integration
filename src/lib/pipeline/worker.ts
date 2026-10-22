@@ -18,21 +18,72 @@ import {
   notifyOrgAdmins,
   updateTaskFromAction,
 } from "@/lib/pipeline/task-actions";
-import type { AiExtractionOutcome, StructuredAiAction } from "@/types";
+import { getAdminDb } from "@/lib/firebase-admin";
+import type { AiExtractionOutcome, ProcessingQueueItem, StructuredAiAction } from "@/types";
+
+/** Lease duration: if a worker crashes, the job becomes claimable after this period */
+const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Atomically claim a queue job using a Firestore transaction.
+ * Returns the updated queue item if claimed, or null if already claimed/completed.
+ */
+async function claimQueueJob(queueId: string): Promise<{ queueItem: ProcessingQueueItem; attempts: number } | null> {
+  const db = getAdminDb();
+  const ref = db.collection("processingQueue").doc(queueId);
+
+  return db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return null;
+
+    const item = snap.data() as ProcessingQueueItem;
+
+    // Already completed or dead — skip
+    if (item.status === "completed" || item.status === "dead") return null;
+
+    // Currently processing — check lease expiry
+    if (item.status === "processing" && item.lockedAt) {
+      const lockTime = new Date(item.lockedAt).getTime();
+      if (Date.now() - lockTime < LEASE_DURATION_MS) {
+        // Another worker is actively processing this — skip
+        return null;
+      }
+      // Lease expired — reclaim
+    }
+
+    const attempts = (item.attempts || 0) + 1;
+    const now = new Date().toISOString();
+    const leaseExpiresAt = new Date(Date.now() + LEASE_DURATION_MS).toISOString();
+
+    tx.update(ref, {
+      status: "processing",
+      attempts,
+      lockedAt: now,
+      leaseExpiresAt,
+      updatedAt: now,
+    });
+
+    return { queueItem: { ...item, status: "processing" as const, attempts, lockedAt: now }, attempts };
+  });
+}
 
 export async function processQueueJob(queueId: string): Promise<{
   ok: boolean;
   outcome?: AiExtractionOutcome;
   error?: string;
 }> {
-  const queueItem = await getQueueItem(queueId);
-  if (!queueItem) {
-    return { ok: false, error: "Queue item not found" };
+  // Atomic claim — prevents duplicate processing by concurrent workers
+  const claimed = await claimQueueJob(queueId);
+
+  if (!claimed) {
+    const existing = await getQueueItem(queueId);
+    if (existing?.status === "completed") {
+      return { ok: true, outcome: "duplicate" };
+    }
+    return { ok: false, error: "Queue item not found or already claimed" };
   }
 
-  if (queueItem.status === "completed") {
-    return { ok: true, outcome: "duplicate" };
-  }
+  const { queueItem, attempts } = claimed;
 
   const message = await getInboundMessage(queueItem.messageId);
   if (!message) {
@@ -44,12 +95,6 @@ export async function processQueueJob(queueId: string): Promise<{
     return { ok: false, error: "Message not found" };
   }
 
-  const attempts = (queueItem.attempts || 0) + 1;
-  await updateQueueItem(queueId, {
-    status: "processing",
-    attempts,
-    lockedAt: new Date().toISOString(),
-  });
   await updateMessageStatus(message.id, "processing");
   await writeProcessingLog({
     orgId: message.orgId,
@@ -99,6 +144,7 @@ export async function processQueueJob(queueId: string): Promise<{
 
     let outcome: AiExtractionOutcome = "ignored";
     let taskId: string | undefined;
+    let contactId: string | undefined;
 
     if (action.intent === "ignore" || confidenceRoute === "ignore") {
       outcome = "ignored";
@@ -120,16 +166,18 @@ export async function processQueueJob(queueId: string): Promise<{
       const result = await applyAction(message.orgId, message.id, action);
       outcome = result.outcome;
       taskId = result.taskId;
+      contactId = result.contactId;
     }
 
     await saveAiExtraction({
       orgId: message.orgId,
       messageId: message.id,
-      model: process.env.GEMINI_API_KEY ? "gemini-1.5-flash" : "heuristic-fallback",
+      model: action.isFallback ? "heuristic-fallback" : "gemini-1.5-flash",
       inputText: message.text,
       action,
       outcome,
       taskId,
+      contactId,
       latencyMs,
       createdAt: new Date().toISOString(),
     });
@@ -185,7 +233,70 @@ async function applyAction(
   orgId: string,
   messageId: string,
   action: StructuredAiAction
-): Promise<{ outcome: AiExtractionOutcome; taskId?: string }> {
+): Promise<{ outcome: AiExtractionOutcome; taskId?: string; contactId?: string }> {
+  const { upsertContact } = await import("@/lib/pipeline/contact-actions");
+
+  // --- Contact-only intent ---
+  if (action.intent === "create_contact") {
+    const contactData = extractContactFields(action);
+    if (contactData.name) {
+      const { contact } = await upsertContact({
+        orgId,
+        ...contactData,
+        sourceMessageId: messageId,
+      });
+      await publishEvent({
+        orgId,
+        type: "task_created", // reuse event type for now
+        messageId,
+        meta: { intent: "create_contact", contactId: contact.id },
+      });
+      return { outcome: "contact_created", contactId: contact.id };
+    }
+    return { outcome: "ignored" };
+  }
+
+  // --- Both contact + task ---
+  if (action.intent === "create_both") {
+    let contactId: string | undefined;
+    const contactData = extractContactFields(action);
+    if (contactData.name) {
+      const { contact } = await upsertContact({
+        orgId,
+        ...contactData,
+        sourceMessageId: messageId,
+      });
+      contactId = contact.id;
+    }
+
+    const labels = [...(action.labels || [])];
+    const taskId = await createTaskFromAction({
+      orgId,
+      action: { ...action, labels },
+      createdBy: "system:whatsapp-pipeline",
+      source: "ai_extracted",
+      messageId,
+    });
+
+    await publishEvent({
+      orgId,
+      type: "task_created",
+      messageId,
+      taskId,
+      meta: { intent: "create_both", contactId },
+    });
+
+    await notifyOrgAdmins(orgId, {
+      title: "Contact & task created from WhatsApp",
+      message: action.title,
+      type: "ai_extraction",
+      relatedId: taskId,
+    });
+
+    return { outcome: "both_created", taskId, contactId };
+  }
+
+  // --- Existing task-based intents ---
   const match = await findBestMatchingTask(orgId, action);
 
   if (action.intent === "close_task") {
@@ -233,6 +344,7 @@ async function applyAction(
     action.intent === "schedule_meeting" ||
     action.intent === "create_note" ||
     action.intent === "ask_question" ||
+    action.intent === "save_reminder" ||
     (action.intent === "update_task" && !match) ||
     (action.intent === "close_task" && !match)
   ) {
@@ -240,6 +352,7 @@ async function applyAction(
     if (action.intent === "schedule_meeting" && !labels.includes("meeting")) labels.push("meeting");
     if (action.intent === "create_note" && !labels.includes("note")) labels.push("note");
     if (action.intent === "ask_question" && !labels.includes("question")) labels.push("question");
+    if (action.intent === "save_reminder" && !labels.includes("reminder")) labels.push("reminder");
 
     const taskId = await createTaskFromAction({
       orgId,
@@ -270,6 +383,30 @@ async function applyAction(
   return { outcome: "ignored" };
 }
 
+/** Extract contact fields from the raw AI action (Gemini returns them as extra fields) */
+function extractContactFields(action: StructuredAiAction): {
+  name: string;
+  phone?: string;
+  email?: string;
+  qualification?: string;
+  experience?: string;
+  skills?: string[];
+  businessName?: string;
+  notes?: string;
+} {
+  const raw = action as unknown as Record<string, unknown>;
+  return {
+    name: (raw.contactName as string) || action.title || "",
+    phone: (raw.contactPhone as string) || undefined,
+    email: (raw.contactEmail as string) || undefined,
+    qualification: (raw.contactQualification as string) || undefined,
+    experience: (raw.contactExperience as string) || undefined,
+    skills: Array.isArray(raw.contactSkills) ? (raw.contactSkills as string[]) : undefined,
+    businessName: (raw.businessName as string) || undefined,
+    notes: action.description || undefined,
+  };
+}
+
 async function finalize(
   queueId: string,
   messageId: string,
@@ -293,19 +430,33 @@ async function finalize(
   });
 }
 
-/** Fire-and-forget enqueue of async worker HTTP call */
-export function enqueueWorkerProcessing(queueId: string, origin: string) {
-  const secret = process.env.PIPELINE_WORKER_SECRET || "dev-pipeline-secret";
+/**
+ * Enqueue async worker processing via HTTP call.
+ * Awaited so Vercel doesn't kill the process before the request is sent.
+ * Failures are logged but do not throw — the cron redrive recovers pending jobs.
+ */
+export async function enqueueWorkerProcessing(queueId: string, origin: string): Promise<void> {
+  const secret = process.env.PIPELINE_WORKER_SECRET;
+  if (!secret) {
+    console.error("PIPELINE_WORKER_SECRET is not set; cannot enqueue worker processing.");
+    return;
+  }
   const url = `${origin}/api/workers/process-message`;
 
-  void fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${secret}`,
-    },
-    body: JSON.stringify({ queueId }),
-  }).catch((err) => {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${secret}`,
+      },
+      body: JSON.stringify({ queueId }),
+    });
+    if (!res.ok) {
+      console.error(`Worker enqueue returned ${res.status} for queueId=${queueId}`);
+    }
+  } catch (err) {
+    // Non-fatal: the cron redrive will pick up pending jobs
     console.error("Failed to enqueue worker:", err);
-  });
+  }
 }

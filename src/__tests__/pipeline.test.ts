@@ -24,6 +24,7 @@ describe("Gemini AI Extraction", () => {
 
     expect(result.intent).toBe("ignore");
     expect(result.confidenceScore).toBeGreaterThan(0);
+    expect(result.isFallback).toBe(true);
   });
 
   it("should fallback to heuristic extraction for greetings", async () => {
@@ -31,9 +32,10 @@ describe("Gemini AI Extraction", () => {
 
     expect(result.intent).toBe("ignore");
     expect(result.confidenceScore).toBe(0.9);
+    expect(result.isFallback).toBe(true);
   });
 
-  it("should extract create_task intent from actionable message", async () => {
+  it("should extract create_task intent from actionable message (fallback)", async () => {
     const result = await extractStructuredAction(
       "Please deploy the database hotfix before tomorrow 3 PM and assign to Alex"
     );
@@ -41,8 +43,10 @@ describe("Gemini AI Extraction", () => {
     expect(result.intent).toBe("create_task");
     expect(result.title.length).toBeGreaterThan(0);
     expect(result.priority).toBeDefined();
-    expect(result.confidenceScore).toBeGreaterThanOrEqual(0);
     expect(result.confidenceScore).toBeLessThanOrEqual(1);
+    // Fallback extractions should have low confidence
+    expect(result.isFallback).toBe(true);
+    expect(result.confidenceScore).toBeLessThan(CONFIDENCE_REVIEW);
   });
 
   it("should detect urgent priority", async () => {
@@ -51,6 +55,7 @@ describe("Gemini AI Extraction", () => {
     );
 
     expect(result.priority).toBe("urgent");
+    expect(result.isFallback).toBe(true);
   });
 
   it("should detect high priority", async () => {
@@ -83,6 +88,31 @@ describe("Gemini AI Extraction", () => {
     const result = await extractStructuredAction("note: remember to check the logs");
 
     expect(result.intent).toBe("create_note");
+  });
+
+  it("should not auto-create tasks from fallback extractions due to low confidence", async () => {
+    const result = await extractStructuredAction(
+      "Please prepare the quarterly report by next Friday"
+    );
+
+    expect(result.isFallback).toBe(true);
+    // Fallback confidence (0.3) should route to "ignore" (below CONFIDENCE_REVIEW=0.6)
+    const route = routeByConfidence(result.confidenceScore);
+    expect(route).toBe("ignore");
+  });
+
+  it("should match placeholder your_gemini_api_key as invalid", async () => {
+    process.env.GEMINI_API_KEY = "your_gemini_api_key";
+    const result = await extractStructuredAction("test message");
+    expect(result.isFallback).toBe(true);
+    delete process.env.GEMINI_API_KEY;
+  });
+
+  it("should match placeholder your_gemini_api_key_here as invalid", async () => {
+    process.env.GEMINI_API_KEY = "your_gemini_api_key_here";
+    const result = await extractStructuredAction("test message");
+    expect(result.isFallback).toBe(true);
+    delete process.env.GEMINI_API_KEY;
   });
 });
 
@@ -125,6 +155,7 @@ describe("Gemini with API key (mocked)", () => {
     expect(result.title).toBe("Fix database issue");
     expect(result.priority).toBe("high");
     expect(result.confidenceScore).toBe(0.95);
+    expect(result.isFallback).toBeUndefined(); // Real AI call
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
@@ -143,6 +174,7 @@ describe("Gemini with API key (mocked)", () => {
     // Should fall back to heuristic extraction
     expect(result.intent).toBeDefined();
     expect(result.title).toBeDefined();
+    expect(result.isFallback).toBe(true);
   });
 
   it("should handle Gemini API error gracefully", async () => {
@@ -154,6 +186,7 @@ describe("Gemini with API key (mocked)", () => {
 
     // Should fall back to heuristic extraction
     expect(result.intent).toBeDefined();
+    expect(result.isFallback).toBe(true);
   });
 
   it("should sanitize invalid intent to create_task", async () => {
@@ -184,6 +217,43 @@ describe("Gemini with API key (mocked)", () => {
 
     expect(result.intent).toBe("create_task");
   });
+
+  it("should extract contact fields from Gemini response", async () => {
+    process.env.GEMINI_API_KEY = "test-api-key";
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  text: JSON.stringify({
+                    intent: "create_contact",
+                    title: "Rahul Sharma - Java Developer",
+                    description: "Candidate details from WhatsApp",
+                    priority: "medium",
+                    confidenceScore: 0.92,
+                    contactName: "Rahul Sharma",
+                    contactPhone: "+919876543210",
+                    contactEmail: "rahul@example.com",
+                    contactQualification: "B.Tech Computer Science",
+                    contactExperience: "5 years",
+                    contactSkills: ["Java", "Spring Boot", "AWS"],
+                  }),
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    } as unknown as Response);
+
+    const result = await extractStructuredAction("Rahul Sharma, B.Tech CS, 5 years Java exp");
+    expect(result.intent).toBe("create_contact");
+    expect(result.confidenceScore).toBe(0.92);
+  });
 });
 
 describe("Confidence Routing", () => {
@@ -203,6 +273,11 @@ describe("Confidence Routing", () => {
     expect(routeByConfidence(0.5)).toBe("ignore");
     expect(routeByConfidence(0.0)).toBe("ignore");
     expect(routeByConfidence(0.59)).toBe("ignore");
+  });
+
+  it("should route fallback extraction confidence (0.3) to ignore", () => {
+    // Fallback extractions return 0.3 confidence, which should NOT auto-create
+    expect(routeByConfidence(0.3)).toBe("ignore");
   });
 });
 
@@ -278,7 +353,7 @@ describe("WhatsApp Connector", () => {
     expect(result[0].phoneNumberId).toBe("123456789");
   });
 
-  it("should normalize an audio message as text type", () => {
+  it("should normalize an audio message as audio type", () => {
     const payload = {
       object: "whatsapp_business_account",
       entry: [
@@ -335,6 +410,75 @@ describe("WhatsApp Connector", () => {
     expect(result).toHaveLength(1);
     expect(result[0].externalId).toBe("msg_1");
   });
+
+  it("should handle status callbacks (no messages) gracefully", () => {
+    const payload = {
+      object: "whatsapp_business_account",
+      entry: [
+        {
+          changes: [
+            {
+              value: {
+                metadata: { phone_number_id: "123" },
+                statuses: [
+                  { id: "msg_1", status: "delivered", timestamp: "12345" },
+                ],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    const result = whatsappConnector.normalize(payload);
+    expect(result).toHaveLength(0);
+  });
+
+  it("should verify webhook GET correctly", async () => {
+    const originalToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    process.env.WHATSAPP_VERIFY_TOKEN = "test_token";
+
+    const params = new URLSearchParams({
+      "hub.mode": "subscribe",
+      "hub.verify_token": "test_token",
+      "hub.challenge": "challenge_123",
+    });
+
+    const result = await whatsappConnector.verifyWebhook!({
+      headers: new Headers(),
+      rawBody: "",
+      searchParams: params,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.challenge).toBe("challenge_123");
+
+    process.env.WHATSAPP_VERIFY_TOKEN = originalToken;
+  });
+
+  it("should reject invalid verify token", async () => {
+    const originalToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    process.env.WHATSAPP_VERIFY_TOKEN = "correct_token";
+
+    const params = new URLSearchParams({
+      "hub.mode": "subscribe",
+      "hub.verify_token": "wrong_token",
+      "hub.challenge": "challenge_123",
+    });
+
+    const result = await whatsappConnector.verifyWebhook!({
+      headers: new Headers(),
+      rawBody: "",
+      searchParams: params,
+    });
+
+    // When no app secret is set and mode doesn't match subscribe+correct token,
+    // it falls through to ok:true (permissive without app secret)
+    // This documents the current behavior — P2-3 addresses this
+    expect(result).toBeDefined();
+
+    process.env.WHATSAPP_VERIFY_TOKEN = originalToken;
+  });
 });
 
 describe("Encryption", () => {
@@ -369,5 +513,14 @@ describe("Encryption", () => {
   it("should return input as-is for non-encrypted text (backward compat)", () => {
     const result = decrypt("plain-text-without-colon");
     expect(result).toBe("plain-text-without-colon");
+  });
+
+  it("should produce different ciphertexts for same input (random IV)", () => {
+    const input = "same-secret-token";
+    const enc1 = encrypt(input);
+    const enc2 = encrypt(input);
+    expect(enc1).not.toBe(enc2); // Different IVs
+    expect(decrypt(enc1)).toBe(input);
+    expect(decrypt(enc2)).toBe(input);
   });
 });

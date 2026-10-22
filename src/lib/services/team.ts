@@ -133,6 +133,7 @@ export async function acceptPendingInviteForUser(
     displayName,
     orgId: invite.orgId,
     role: invite.role,
+    acceptedInviteId: invite.id,
     updatedAt: now,
   });
   batch.update(doc(db, INVITES_COLLECTION, invite.id), {
