@@ -99,6 +99,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (!isAdminConfigured()) {
+    if (process.env.NODE_ENV === "production") {
+      logStructured("error", "Firebase Admin is not configured; refusing to acknowledge webhook in production.", {
+        requestId,
+        durationMs: Date.now() - startTime,
+      });
+      return NextResponse.json(
+        { status: "PERSIST_UNAVAILABLE", error: "Firebase Admin is not configured" },
+        { status: 503 }
+      );
+    }
+
     logStructured("warn", "FIREBASE_SERVICE_ACCOUNT_JSON is not configured; acknowledging webhook without persistence.", {
       requestId,
       durationMs: Date.now() - startTime,

@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { extractStructuredAction } from "@/lib/services/gemini";
 import { routeByConfidence, CONFIDENCE_AUTO, CONFIDENCE_REVIEW } from "@/lib/pipeline/confidence";
 import {
@@ -7,6 +8,7 @@ import {
 } from "@/lib/pipeline/normalize";
 import { whatsappConnector } from "@/lib/pipeline/connectors";
 import { encrypt, decrypt } from "@/lib/crypto";
+import { normalizePhone } from "@/lib/pipeline/contact-actions";
 
 // Mock fetch globally for Gemini tests
 const mockFetch = jest.fn() as jest.MockedFunction<typeof fetch>;
@@ -475,9 +477,87 @@ describe("WhatsApp Connector", () => {
     // When no app secret is set and mode doesn't match subscribe+correct token,
     // it falls through to ok:true (permissive without app secret)
     // This documents the current behavior — P2-3 addresses this
-    expect(result).toBeDefined();
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(403);
 
     process.env.WHATSAPP_VERIFY_TOKEN = originalToken;
+  });
+
+  it("should accept a valid X-Hub-Signature-256 when app secret is configured", async () => {
+    const originalSecret = process.env.WHATSAPP_APP_SECRET;
+    process.env.WHATSAPP_APP_SECRET = "test-app-secret";
+    const rawBody = JSON.stringify({ object: "whatsapp_business_account" });
+    const signature =
+      "sha256=" +
+      crypto
+        .createHmac("sha256", process.env.WHATSAPP_APP_SECRET)
+        .update(rawBody)
+        .digest("hex");
+
+    const result = await whatsappConnector.verifyWebhook!({
+      headers: new Headers({ "x-hub-signature-256": signature }),
+      rawBody,
+      searchParams: new URLSearchParams(),
+    });
+
+    expect(result.ok).toBe(true);
+    process.env.WHATSAPP_APP_SECRET = originalSecret;
+  });
+
+  it("should reject a missing or invalid signature when app secret is configured", async () => {
+    const originalSecret = process.env.WHATSAPP_APP_SECRET;
+    process.env.WHATSAPP_APP_SECRET = "test-app-secret";
+
+    const missing = await whatsappConnector.verifyWebhook!({
+      headers: new Headers(),
+      rawBody: "{}",
+      searchParams: new URLSearchParams(),
+    });
+    expect(missing.ok).toBe(false);
+    expect(missing.status).toBe(401);
+
+    const invalid = await whatsappConnector.verifyWebhook!({
+      headers: new Headers({ "x-hub-signature-256": "sha256=deadbeef" }),
+      rawBody: "{}",
+      searchParams: new URLSearchParams(),
+    });
+    expect(invalid.ok).toBe(false);
+    expect(invalid.status).toBe(401);
+
+    process.env.WHATSAPP_APP_SECRET = originalSecret;
+  });
+
+  it("should fail closed in production when app secret is missing", async () => {
+    const originalSecret = process.env.WHATSAPP_APP_SECRET;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const mutableEnv = process.env as Record<string, string | undefined>;
+    delete process.env.WHATSAPP_APP_SECRET;
+    mutableEnv.NODE_ENV = "production";
+
+    const result = await whatsappConnector.verifyWebhook!({
+      headers: new Headers(),
+      rawBody: "{}",
+      searchParams: new URLSearchParams(),
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(503);
+
+    process.env.WHATSAPP_APP_SECRET = originalSecret;
+    mutableEnv.NODE_ENV = originalNodeEnv;
+  });
+});
+
+describe("Contact phone normalization", () => {
+  it("should normalize formatted phone numbers for deduplication", () => {
+    expect(normalizePhone("+91 98765-43210")).toBe("919876543210");
+    expect(normalizePhone("(555) 019-2834")).toBe("5550192834");
+    expect(normalizePhone("919876543210")).toBe("919876543210");
+  });
+
+  it("should return an empty string for missing phones", () => {
+    expect(normalizePhone(undefined)).toBe("");
+    expect(normalizePhone("")).toBe("");
   });
 });
 

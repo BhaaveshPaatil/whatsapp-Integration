@@ -94,6 +94,23 @@ export async function createTaskFromAction(input: {
   messageId?: string;
 }): Promise<string> {
   const db = getAdminDb();
+
+  // Idempotency: a worker retry after a partial failure must not create a
+  // second task for the same inbound message.
+  if (input.messageId) {
+    // Inbound message IDs are globally unique Firestore IDs, so a single-field
+    // query is enough and needs no new composite index.
+    const existing = await db
+      .collection("tasks")
+      .where("sourceMessageId", "==", input.messageId)
+      .limit(1)
+      .get();
+    const existingOrgId = existing.docs[0]?.data().orgId;
+    if (!existing.empty && existingOrgId === input.orgId) {
+      return (existing.docs[0].data().id as string) || existing.docs[0].id;
+    }
+  }
+
   const ref = db.collection("tasks").doc();
   const now = FieldValue.serverTimestamp();
   const dueDate = input.action.dueDate

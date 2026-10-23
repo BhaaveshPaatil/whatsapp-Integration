@@ -284,7 +284,8 @@ service cloud.firestore {
     }
 
     match /processingLogs/{id} {
-      allow read: if orgAdmin(resource.data.orgId);
+      // Org members may see live pipeline stages/errors on the AI logs page.
+      allow read: if sameOrg(resource.data.orgId);
       allow write: if false;
     }
 

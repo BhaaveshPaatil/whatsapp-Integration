@@ -22,7 +22,7 @@ export default function SettingsPage() {
     organization?.whatsappBusinessAccountId || ""
   );
   const [whatsappToken, setWhatsappToken] = useState("");
-  const [geminiKey, setGeminiKey] = useState(organization?.geminiApiKey || "");
+  const [geminiKey, setGeminiKey] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -38,7 +38,9 @@ export default function SettingsPage() {
     setOrgName(organization.name || "");
     setWhatsappPhoneId(organization.whatsappPhoneNumberId || "");
     setWhatsappBusinessAccountId(organization?.whatsappBusinessAccountId || "");
-    setGeminiKey(organization.geminiApiKey || "");
+    // Secrets are never sent to the browser; only leave this blank so an
+    // unchanged field does not overwrite the stored encrypted key.
+    setGeminiKey("");
     setConnectionStatus(organization.whatsappConfigured ? "connected" : "idle");
     // Don't populate the token field — it's encrypted server-side
     setWhatsappToken("");
@@ -51,8 +53,14 @@ export default function SettingsPage() {
       return;
     }
 
-    if (!whatsappPhoneId || !whatsappBusinessAccountId || !whatsappToken) {
-      setError("Phone Number ID, Business Account ID, and Access Token are all required.");
+    if (
+      !whatsappPhoneId ||
+      !whatsappBusinessAccountId ||
+      (!whatsappToken && !organization.whatsappConfigured)
+    ) {
+      setError(
+        "Phone Number ID and Business Account ID are required. A new Access Token is required for first-time setup."
+      );
       return;
     }
 
@@ -81,8 +89,9 @@ export default function SettingsPage() {
           orgId: organization.id,
           whatsappPhoneNumberId: whatsappPhoneId,
           whatsappBusinessAccountId,
-          whatsappAccessToken: whatsappToken,
-          geminiApiKey: geminiKey,
+          // Omit secrets the admin did not change so the server keeps them.
+          ...(whatsappToken ? { whatsappAccessToken: whatsappToken } : {}),
+          ...(geminiKey ? { geminiApiKey: geminiKey } : {}),
           orgName,
         }),
       });
@@ -101,13 +110,14 @@ export default function SettingsPage() {
         ...organization,
         name: orgName,
         whatsappPhoneNumberId: whatsappPhoneId,
+        whatsappBusinessAccountId,
         whatsappConfigured: true,
-        geminiApiKey: geminiKey,
-        aiConfigured: Boolean(geminiKey),
+        aiConfigured: organization.aiConfigured || Boolean(geminiKey),
         updatedAt: new Date().toISOString(),
       });
       setMessage("Configuration saved and Meta token verified successfully!");
       setWhatsappToken(""); // Clear token from UI after save
+      setGeminiKey("");
       setTimeout(() => setMessage(null), 5000);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Unable to save settings.");
@@ -276,10 +286,17 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-harbor-secondary">Gemini API Key</label>
+              <label className="text-xs font-medium text-harbor-secondary">
+                Gemini API Key
+                {organization?.aiConfigured && (
+                  <span className="ml-2 text-emerald-500 text-[10px]">
+                    (key saved &amp; encrypted - leave blank to keep it)
+                  </span>
+                )}
+              </label>
               <input
                 type="password"
-                placeholder="AIzaSy..."
+                placeholder={organization?.aiConfigured ? "Enter a new key to replace" : "AIzaSy..."}
                 value={geminiKey}
                 onChange={(e) => setGeminiKey(e.target.value)}
                 className="harbor-input w-full max-w-md font-mono"

@@ -87,7 +87,8 @@ export default function WhatsAppPage() {
           orgId: organization.id,
           whatsappPhoneNumberId: organization.whatsappPhoneNumberId || "",
           whatsappBusinessAccountId: organization?.whatsappBusinessAccountId || "",
-          whatsappAccessToken: "test", // will hit simulated path
+          // verifyOnly reuses the stored token and never overwrites it.
+          verifyOnly: true,
           orgName: organization.name,
         }),
       });

@@ -1,5 +1,10 @@
 import { db } from "@/lib/firebase";
-import type { AiExtractionRecord, AnalyticsEvent, InboundMessage } from "@/types";
+import type {
+  AiExtractionRecord,
+  AnalyticsEvent,
+  InboundMessage,
+  ProcessingLog,
+} from "@/types";
 import {
   collection,
   onSnapshot,
@@ -50,6 +55,25 @@ export function subscribeToAnalyticsEvents(
     (err) => {
       console.error(err);
       onError(new Error(`Unable to load analytics events. (${err.code})`));
+    }
+  );
+}
+
+export function subscribeToProcessingLogs(
+  orgId: string,
+  onData: (rows: ProcessingLog[]) => void,
+  onError: (error: Error) => void,
+  max = 50
+): Unsubscribe {
+  const q = query(collection(db, "processingLogs"), where("orgId", "==", orgId));
+
+  return onSnapshot(
+    q,
+    (snap) =>
+      onData(byCreatedAtDesc(snap.docs.map((d) => d.data() as ProcessingLog)).slice(0, max)),
+    (err) => {
+      console.error(err);
+      onError(new Error(`Unable to load processing logs. (${err.code})`));
     }
   );
 }

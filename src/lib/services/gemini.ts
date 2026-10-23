@@ -39,9 +39,11 @@ export async function extractTaskFromText(text: string): Promise<ExtractedTaskDa
 
 export async function extractStructuredAction(
   text: string,
-  context?: { history?: string[]; openTasks?: string[] }
+  context?: { history?: string[]; openTasks?: string[]; apiKey?: string }
 ): Promise<StructuredAiAction> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Prefer the organization-specific key provided by the worker, then fall
+  // back to the deployment-wide environment key.
+  const apiKey = context?.apiKey || process.env.GEMINI_API_KEY;
 
   if (!apiKey || apiKey.startsWith("your_gemini_api_key")) {
     return fallbackExtraction(text);

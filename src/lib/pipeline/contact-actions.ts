@@ -1,10 +1,18 @@
 import { getAdminDb } from "@/lib/firebase-admin";
+import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import type { Contact } from "@/types";
+
+/**
+ * Strip formatting so "+91 98765-43210" and "919876543210" deduplicate.
+ */
+export function normalizePhone(phone?: string): string {
+  return (phone || "").replace(/\D/g, "");
+}
 
 /**
  * Create or update a contact record in Firestore.
  * Duplicate detection by phone number within the same org.
- * Preserves human-verified fields — AI values only fill blanks.
+ * Preserves human-verified fields - AI values only fill blanks.
  */
 export async function upsertContact(input: {
   orgId: string;
@@ -21,18 +29,31 @@ export async function upsertContact(input: {
 }): Promise<{ contact: Contact; isNew: boolean }> {
   const db = getAdminDb();
   const now = new Date().toISOString();
+  const normalizedPhone = normalizePhone(input.phone);
 
-  // Duplicate detection: match by phone within org
-  if (input.phone) {
-    const existing = await db
-      .collection("contacts")
-      .where("orgId", "==", input.orgId)
-      .where("phone", "==", input.phone)
-      .limit(1)
-      .get();
+  // Duplicate detection: match by normalized phone within org. Also supports
+  // legacy rows that stored the raw formatted number.
+  if (normalizedPhone) {
+    const phoneCandidates = Array.from(
+      new Set([normalizedPhone, input.phone].filter(Boolean) as string[])
+    );
+    let existingDoc: QueryDocumentSnapshot | null = null;
 
-    if (!existing.empty) {
-      const doc = existing.docs[0];
+    for (const candidate of phoneCandidates) {
+      const existing = await db
+        .collection("contacts")
+        .where("orgId", "==", input.orgId)
+        .where("phone", "==", candidate)
+        .limit(1)
+        .get();
+      if (!existing.empty) {
+        existingDoc = existing.docs[0];
+        break;
+      }
+    }
+
+    if (existingDoc) {
+      const doc = existingDoc;
       const data = doc.data() as Contact;
       const verified = new Set(data.verifiedFields || []);
 
@@ -68,7 +89,7 @@ export async function upsertContact(input: {
     id: ref.id,
     orgId: input.orgId,
     name: input.name,
-    phone: input.phone,
+    phone: normalizedPhone || input.phone,
     email: input.email,
     qualification: input.qualification,
     experience: input.experience,

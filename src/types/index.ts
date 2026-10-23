@@ -25,8 +25,6 @@ export interface Organization {
   aiConfigured: boolean;
   whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
-  whatsappAccessToken?: string;
-  geminiApiKey?: string;
 }
 
 export type TaskPriority = "low" | "medium" | "high" | "urgent";
@@ -198,6 +196,7 @@ export interface AiExtractionRecord {
   taskId?: string;
   contactId?: string;
   latencyMs: number;
+  error?: string;
   createdAt: string;
 }
 

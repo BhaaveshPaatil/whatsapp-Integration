@@ -50,10 +50,20 @@ export async function resolveOrgIdForWhatsApp(
     }
   }
 
-  // Fallback to DEFAULT_ORG_ID in development/local testing
-  if (process.env.DEFAULT_ORG_ID) {
-    console.log("resolveOrgIdForWhatsApp fallback: using DEFAULT_ORG_ID:", process.env.DEFAULT_ORG_ID);
-    return process.env.DEFAULT_ORG_ID;
+  // Fallback to DEFAULT_ORG_ID only for local/development testing (or when an
+  // operator explicitly opts in). Never allow unknown phone IDs to silently
+  // route messages into an arbitrary tenant in production.
+  const allowDefaultFallback =
+    Boolean(process.env.DEFAULT_ORG_ID) &&
+    (process.env.NODE_ENV !== "production" ||
+      process.env.ALLOW_DEFAULT_ORG_FALLBACK === "true");
+
+  if (allowDefaultFallback) {
+    console.warn(
+      "resolveOrgIdForWhatsApp fallback: using DEFAULT_ORG_ID:",
+      process.env.DEFAULT_ORG_ID
+    );
+    return process.env.DEFAULT_ORG_ID as string;
   }
 
   const errorMsg = `[RESOLVE ORG FAILED] No active organization mapping found for WhatsApp Phone Number ID: ${phoneNumberId || "undefined"}`;
@@ -345,9 +355,12 @@ export async function writeProcessingLog(input: Omit<ProcessingLog, "id" | "crea
 
 export async function saveAiExtraction(record: Omit<AiExtractionRecord, "id">): Promise<AiExtractionRecord> {
   const db = getAdminDb();
-  const ref = db.collection("aiExtractions").doc();
+  // One extraction record per inbound message keeps retries idempotent and
+  // lets the AI logs page map logs 1:1 to actual processing records.
+  const docId = `${record.orgId}__${record.messageId}`.replace(/\//g, "_");
+  const ref = db.collection("aiExtractions").doc(docId);
   const full: AiExtractionRecord = { id: ref.id, ...record };
-  await ref.set(full);
+  await ref.set(full, { merge: true });
   return full;
 }
 

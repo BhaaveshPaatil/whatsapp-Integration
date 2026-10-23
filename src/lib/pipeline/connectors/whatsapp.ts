@@ -117,24 +117,57 @@ export const whatsappConnector: MessageConnector = {
     const mode = searchParams.get("hub.mode");
     const token = searchParams.get("hub.verify_token");
     const challenge = searchParams.get("hub.challenge");
-    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN || "taskflow_verify_token_secret";
+    const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
-    if (mode === "subscribe" && token === verifyToken && challenge) {
-      return { ok: true, challenge, status: 200 };
+    // GET subscription handshake. Never fall through to the POST path here:
+    // an invalid verify token must be rejected.
+    if (mode === "subscribe") {
+      if (!verifyToken) {
+        return { ok: false, status: 503, body: "WHATSAPP_VERIFY_TOKEN is not configured" };
+      }
+      if (token === verifyToken && challenge) {
+        return { ok: true, challenge, status: 200 };
+      }
+      return { ok: false, status: 403, body: "Invalid verify token" };
     }
 
-    // Signature check for POST (when app secret is configured)
-    const appSecret = process.env.WHATSAPP_APP_SECRET;
-    if (appSecret && rawBody) {
-      const signature = headers.get("x-hub-signature-256") || "";
-      const expected =
-        "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
-      const valid =
-        signature.length === expected.length &&
-        crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-      if (!valid) {
-        return { ok: false, status: 401, body: "Invalid signature" };
+    // POST webhook. Verify X-Hub-Signature-256 against the raw request body.
+    const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
+    const isProduction = process.env.NODE_ENV === "production";
+
+    if (!appSecret) {
+      // Fail closed in production. In local/test allow the request so the
+      // pipeline can be exercised without Meta credentials, but make the
+      // missing configuration explicit.
+      if (isProduction) {
+        console.error(
+          "Rejecting WhatsApp webhook: WHATSAPP_APP_SECRET is required in production."
+        );
+        return {
+          ok: false,
+          status: 503,
+          body: "Webhook signature verification is not configured",
+        };
       }
+      console.warn(
+        "WHATSAPP_APP_SECRET is not set; skipping signature verification in non-production."
+      );
+      return { ok: true };
+    }
+
+    const signature = headers.get("x-hub-signature-256") || "";
+    if (!signature) {
+      return { ok: false, status: 401, body: "Missing signature" };
+    }
+
+    const expected =
+      "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+    const valid =
+      signature.length === expected.length &&
+      crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+
+    if (!valid) {
+      return { ok: false, status: 401, body: "Invalid signature" };
     }
 
     return { ok: true };

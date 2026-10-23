@@ -9,6 +9,7 @@ import {
   CheckSquare,
   Users,
   MessageSquare,
+  Contact as ContactIcon,
   Bot,
   BarChart3,
   Settings,
@@ -30,6 +31,7 @@ export function Sidebar() {
   const navigation = [
     { name: "Dashboard",     href: "/dashboard",           icon: LayoutDashboard },
     { name: "Tasks",         href: "/dashboard/tasks",     icon: CheckSquare },
+    { name: "Contacts",      href: "/dashboard/contacts",  icon: ContactIcon },
     { name: "Team",          href: "/dashboard/team",      icon: Users,         adminOnly: true },
     { name: "WhatsApp Hub",  href: "/dashboard/whatsapp",  icon: MessageSquare, adminOnly: true },
     { name: "AI Extractions",href: "/dashboard/ai-logs",   icon: Bot },

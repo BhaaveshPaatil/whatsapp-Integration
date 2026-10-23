@@ -19,10 +19,30 @@ import {
   updateTaskFromAction,
 } from "@/lib/pipeline/task-actions";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { decrypt } from "@/lib/crypto";
 import type { AiExtractionOutcome, ProcessingQueueItem, StructuredAiAction } from "@/types";
 
 /** Lease duration: if a worker crashes, the job becomes claimable after this period */
 const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Load the organization's encrypted Gemini key (set in Settings) so each
+ * tenant can use its own quota. Returns undefined when not configured.
+ */
+async function getOrgGeminiKey(orgId: string): Promise<string | undefined> {
+  try {
+    const snap = await getAdminDb().collection("organizations").doc(orgId).get();
+    const encrypted = snap.data()?.geminiApiKey;
+    if (!encrypted || typeof encrypted !== "string") return undefined;
+    const key = decrypt(encrypted);
+    // A double-encrypted legacy value decrypts to another "iv:ciphertext"
+    // blob. Treat that as unusable rather than sending it to Gemini.
+    return key && !key.includes(":") ? key : undefined;
+  } catch (error) {
+    console.warn("Unable to load organization Gemini key:", error);
+    return undefined;
+  }
+}
 
 /**
  * Atomically claim a queue job using a Firestore transaction.
@@ -105,9 +125,31 @@ export async function processQueueJob(queueId: string): Promise<{
   });
 
   const started = Date.now();
+  let action: StructuredAiAction | null = null;
+  let extractionSaved = false;
 
   try {
     if (!message.text?.trim()) {
+      const latencyMs = Date.now() - started;
+      await saveAiExtraction({
+        orgId: message.orgId,
+        messageId: message.id,
+        model: "pipeline",
+        inputText: message.text || "",
+        action: {
+          intent: "ignore",
+          title: "Empty message body",
+          description: "Attachment-only message; OCR/ASR stage is not implemented.",
+          priority: "low",
+          confidenceScore: 1,
+          labels: ["empty"],
+        },
+        outcome: "ignored",
+        latencyMs,
+        createdAt: new Date().toISOString(),
+      });
+      extractionSaved = true;
+
       await finalize(queueId, message.id, message.orgId, "ignored", {
         detail: "Empty message body — attachment-only messages need OCR/ASR stage",
       });
@@ -126,6 +168,8 @@ export async function processQueueJob(queueId: string): Promise<{
     const openTasks = await listOpenTasks(message.orgId);
     const openTaskLines = openTasks.map((t) => `[${t.id}] ${t.title} (${t.status})`);
 
+    const orgApiKey = await getOrgGeminiKey(message.orgId);
+
     await writeProcessingLog({
       orgId: message.orgId,
       messageId: message.id,
@@ -134,9 +178,10 @@ export async function processQueueJob(queueId: string): Promise<{
       detail: `Calling Gemini with ${history.length} history msgs, ${openTasks.length} open tasks`,
     });
 
-    const action = await extractStructuredAction(message.text, {
+    action = await extractStructuredAction(message.text, {
       history,
       openTasks: openTaskLines,
+      apiKey: orgApiKey,
     });
 
     const latencyMs = Date.now() - started;
@@ -163,7 +208,10 @@ export async function processQueueJob(queueId: string): Promise<{
         meta: { confidence: action.confidenceScore, intent: action.intent },
       });
     } else {
-      const result = await applyAction(message.orgId, message.id, action);
+      const result = await applyAction(message.orgId, message.id, action, {
+        phone: message.sender,
+        name: message.senderName,
+      });
       outcome = result.outcome;
       taskId = result.taskId;
       contactId = result.contactId;
@@ -181,6 +229,7 @@ export async function processQueueJob(queueId: string): Promise<{
       latencyMs,
       createdAt: new Date().toISOString(),
     });
+    extractionSaved = true;
 
     await publishEvent({
       orgId: message.orgId,
@@ -202,6 +251,8 @@ export async function processQueueJob(queueId: string): Promise<{
     return { ok: true, outcome };
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : "Unknown processing error";
+    const latencyMs = Date.now() - started;
+
     await writeProcessingLog({
       orgId: message.orgId,
       messageId: message.id,
@@ -210,6 +261,37 @@ export async function processQueueJob(queueId: string): Promise<{
       detail: errMsg,
     });
 
+    // Persist a failed extraction record so the AI logs page reflects real
+    // processing failures. Never overwrite a record that already succeeded.
+    if (!extractionSaved) {
+      const failedAction: StructuredAiAction =
+        action ?? {
+          intent: "ignore",
+          title: (message.text || "Processing failed").slice(0, 120),
+          description: errMsg,
+          priority: "medium",
+          confidenceScore: 0,
+          labels: ["error"],
+          isFallback: true,
+        };
+
+      try {
+        await saveAiExtraction({
+          orgId: message.orgId,
+          messageId: message.id,
+          model: action?.isFallback ? "heuristic-fallback" : "gemini-1.5-flash",
+          inputText: message.text || "",
+          action: failedAction,
+          outcome: "failed",
+          latencyMs,
+          error: errMsg,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (logError) {
+        console.error("Unable to persist failed AI extraction record:", logError);
+      }
+    }
+
     const dead = attempts >= (queueItem.maxAttempts || 5);
     await updateQueueItem(queueId, {
       status: dead ? "dead" : "pending",
@@ -217,7 +299,8 @@ export async function processQueueJob(queueId: string): Promise<{
       scheduledAt: new Date(Date.now() + attempts * 15_000).toISOString(),
       ...(dead ? { completedAt: new Date().toISOString() } : {}),
     });
-    await updateMessageStatus(message.id, "failed", { error: errMsg });
+    // While a retry is scheduled the message is queued, not permanently failed.
+    await updateMessageStatus(message.id, dead ? "failed" : "queued", { error: errMsg });
     await publishEvent({
       orgId: message.orgId,
       type: "processing_failed",
@@ -232,13 +315,14 @@ export async function processQueueJob(queueId: string): Promise<{
 async function applyAction(
   orgId: string,
   messageId: string,
-  action: StructuredAiAction
+  action: StructuredAiAction,
+  contactDefaults?: { phone?: string; name?: string }
 ): Promise<{ outcome: AiExtractionOutcome; taskId?: string; contactId?: string }> {
   const { upsertContact } = await import("@/lib/pipeline/contact-actions");
 
   // --- Contact-only intent ---
   if (action.intent === "create_contact") {
-    const contactData = extractContactFields(action);
+    const contactData = extractContactFields(action, contactDefaults);
     if (contactData.name) {
       const { contact } = await upsertContact({
         orgId,
@@ -259,7 +343,7 @@ async function applyAction(
   // --- Both contact + task ---
   if (action.intent === "create_both") {
     let contactId: string | undefined;
-    const contactData = extractContactFields(action);
+    const contactData = extractContactFields(action, contactDefaults);
     if (contactData.name) {
       const { contact } = await upsertContact({
         orgId,
@@ -384,7 +468,10 @@ async function applyAction(
 }
 
 /** Extract contact fields from the raw AI action (Gemini returns them as extra fields) */
-function extractContactFields(action: StructuredAiAction): {
+function extractContactFields(
+  action: StructuredAiAction,
+  defaults?: { phone?: string; name?: string }
+): {
   name: string;
   phone?: string;
   email?: string;
@@ -396,8 +483,14 @@ function extractContactFields(action: StructuredAiAction): {
 } {
   const raw = action as unknown as Record<string, unknown>;
   return {
-    name: (raw.contactName as string) || action.title || "",
-    phone: (raw.contactPhone as string) || undefined,
+    name:
+      (raw.contactName as string) ||
+      defaults?.name ||
+      action.title ||
+      "",
+    // For WhatsApp contacts, the sender's number is the most reliable phone
+    // when Gemini does not repeat it in the message body.
+    phone: (raw.contactPhone as string) || defaults?.phone || undefined,
     email: (raw.contactEmail as string) || undefined,
     qualification: (raw.contactQualification as string) || undefined,
     experience: (raw.contactExperience as string) || undefined,

@@ -4,6 +4,19 @@ import { Organization } from "@/types";
 
 const ORGS_COLLECTION = "organizations";
 
+/**
+ * Never expose encrypted credentials to the browser, even though they are
+ * encrypted at rest. Server routes read/write them via the Admin SDK.
+ */
+function stripOrganizationSecrets(
+  data: Organization & { whatsappAccessToken?: string; geminiApiKey?: string }
+): Organization {
+  const safe = { ...data };
+  delete safe.whatsappAccessToken;
+  delete safe.geminiApiKey;
+  return safe;
+}
+
 export async function createOrganization(
   name: string,
   ownerId: string
@@ -44,7 +57,7 @@ export async function getOrganization(orgId: string): Promise<Organization | nul
   const orgRef = doc(db, ORGS_COLLECTION, orgId);
   const snap = await getDoc(orgRef);
   if (snap.exists()) {
-    return snap.data() as Organization;
+    return stripOrganizationSecrets(snap.data() as Organization);
   }
   return null;
 }
@@ -70,7 +83,11 @@ export function subscribeToOrganization(
   return onSnapshot(
     orgRef,
     (snapshot) => {
-      onOrganization(snapshot.exists() ? (snapshot.data() as Organization) : null);
+      onOrganization(
+        snapshot.exists()
+          ? stripOrganizationSecrets(snapshot.data() as Organization)
+          : null
+      );
     },
     (error) => {
       console.error("Organization subscription failed:", error);

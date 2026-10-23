@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminApp, getAdminDb } from "@/lib/firebase-admin";
 import { getAuth } from "firebase-admin/auth";
-import { encrypt } from "@/lib/crypto";
+import { decrypt, encrypt } from "@/lib/crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,11 +34,15 @@ export async function POST(req: NextRequest) {
       whatsappAccessToken,
       geminiApiKey,
       orgName,
+      verifyOnly,
     } = body;
 
-    if (!orgId || !whatsappPhoneNumberId || !whatsappBusinessAccountId || !whatsappAccessToken) {
+    if (!orgId || !whatsappPhoneNumberId || !whatsappBusinessAccountId) {
       return NextResponse.json(
-        { error: "orgId, whatsappPhoneNumberId, whatsappBusinessAccountId, and whatsappAccessToken are required" },
+        {
+          error:
+            "orgId, whatsappPhoneNumberId, and whatsappBusinessAccountId are required",
+        },
         { status: 400 }
       );
     }
@@ -54,6 +58,47 @@ export async function POST(req: NextRequest) {
     const userProfile = userDoc.data() || {};
     if (userProfile.orgId !== orgId || userProfile.role !== "admin") {
       return NextResponse.json({ error: "Forbidden: Admin role required for this organization" }, { status: 403 });
+    }
+
+    const orgRef = db.collection("organizations").doc(orgId);
+    const orgSnap = await orgRef.get();
+    if (!orgSnap.exists) {
+      return NextResponse.json({ error: "Organization not found" }, { status: 404 });
+    }
+    const orgData = orgSnap.data() || {};
+
+    const providedToken =
+      typeof whatsappAccessToken === "string" ? whatsappAccessToken.trim() : "";
+    const storedToken =
+      typeof orgData.whatsappAccessToken === "string" && orgData.whatsappAccessToken
+        ? decrypt(orgData.whatsappAccessToken)
+        : "";
+
+    const isSimulated =
+      providedToken.startsWith("simulated_") ||
+      providedToken === "test" ||
+      providedToken === "dev";
+
+    // Settings can update non-secret fields without re-entering the token.
+    const tokenToVerify = isSimulated
+      ? providedToken
+      : providedToken || storedToken;
+
+    if (!tokenToVerify) {
+      return NextResponse.json(
+        { error: "A WhatsApp access token is required for this organization." },
+        { status: 400 }
+      );
+    }
+
+    if (isSimulated && !verifyOnly) {
+      return NextResponse.json(
+        {
+          error:
+            "Simulated tokens can only be used for connection tests, not saved as credentials.",
+        },
+        { status: 400 }
+      );
     }
 
     // 4. Check for duplicate mapping
@@ -75,7 +120,6 @@ export async function POST(req: NextRequest) {
     // 5. Verify token with Meta API
     let displayPhoneNumber = "Simulated Number";
     const isNonProd = process.env.NODE_ENV !== "production";
-    const isSimulated = whatsappAccessToken.startsWith("simulated_") || whatsappAccessToken === "test" || whatsappAccessToken === "dev";
     if (isSimulated && isNonProd) {
       displayPhoneNumber = `+1555019${whatsappPhoneNumberId.slice(-4) || "9999"}`;
     } else if (isSimulated && !isNonProd) {
@@ -88,7 +132,7 @@ export async function POST(req: NextRequest) {
         // Use Authorization header instead of query param to avoid token leaking into logs
         const metaUrl = `https://graph.facebook.com/v18.0/${whatsappPhoneNumberId}`;
         const metaRes = await fetch(metaUrl, {
-          headers: { Authorization: `Bearer ${whatsappAccessToken}` },
+          headers: { Authorization: `Bearer ${tokenToVerify}` },
         });
         const metaData = await metaRes.json();
         if (!metaRes.ok) {
@@ -109,30 +153,40 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 6. Encrypt token and perform atomic writes in transaction
-    const encryptedToken = encrypt(whatsappAccessToken);
-    const orgRef = db.collection("organizations").doc(orgId);
-    const connRef = db.collection("whatsappConnections").doc(whatsappPhoneNumberId);
+    // A test-connection request must never write credentials/config.
+    if (verifyOnly) {
+      return NextResponse.json(
+        { success: true, displayPhoneNumber, verifiedOnly: true },
+        { status: 200 }
+      );
+    }
 
+    // 6. Perform atomic writes in transaction
+    const connRef = db.collection("whatsappConnections").doc(whatsappPhoneNumberId);
     const now = new Date().toISOString();
 
     const orgUpdates: Record<string, unknown> = {
       whatsappConfigured: true,
       whatsappPhoneNumberId,
       whatsappBusinessAccountId,
-      whatsappAccessToken: encryptedToken,
       updatedAt: now,
     };
 
+    // Only overwrite the encrypted token when a new real token was provided.
+    if (providedToken && !isSimulated) {
+      orgUpdates.whatsappAccessToken = encrypt(providedToken);
+    }
+
     if (geminiApiKey !== undefined) {
-      // Encrypt the Gemini API key the same way as the WhatsApp token
-      orgUpdates.geminiApiKey = geminiApiKey ? encrypt(geminiApiKey) : "";
+      // Encrypt the Gemini API key the same way as the WhatsApp token.
+      // Omitting the field leaves the stored key untouched.
+      orgUpdates.geminiApiKey = geminiApiKey ? encrypt(String(geminiApiKey)) : "";
       orgUpdates.aiConfigured = Boolean(geminiApiKey);
     }
 
     if (orgName) {
       orgUpdates.name = orgName;
-      orgUpdates.slug = orgName.toLowerCase().replace(/[^a-z0-9]/g, "-");
+      orgUpdates.slug = String(orgName).toLowerCase().replace(/[^a-z0-9]/g, "-");
     }
 
     await db.runTransaction(async (transaction) => {
