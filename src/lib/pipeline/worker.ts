@@ -23,7 +23,7 @@ import { decrypt } from "@/lib/crypto";
 import type { AiExtractionOutcome, ProcessingQueueItem, StructuredAiAction } from "@/types";
 
 /** Lease duration: if a worker crashes, the job becomes claimable after this period */
-const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+export const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Load the organization's encrypted Gemini key (set in Settings) so each
@@ -60,6 +60,13 @@ async function claimQueueJob(queueId: string): Promise<{ queueItem: ProcessingQu
 
     // Already completed or dead — skip
     if (item.status === "completed" || item.status === "dead") return null;
+
+    // Respect the retry backoff. Redrive already filters due jobs, but a direct
+    // worker call must not process a job before its scheduled time either.
+    if (item.status !== "processing" && item.scheduledAt) {
+      const scheduledMs = new Date(item.scheduledAt).getTime();
+      if (!Number.isNaN(scheduledMs) && scheduledMs > Date.now()) return null;
+    }
 
     // Currently processing — check lease expiry
     if (item.status === "processing" && item.lockedAt) {
@@ -105,14 +112,52 @@ export async function processQueueJob(queueId: string): Promise<{
 
   const { queueItem, attempts } = claimed;
 
-  const message = await getInboundMessage(queueItem.messageId);
+  // Scope the message lookup to the queue item's org so a corrupt or forged
+  // queue record can never cause cross-tenant processing.
+  const message = await getInboundMessage(queueItem.messageId, queueItem.orgId);
   if (!message) {
+    // A missing/foreign message is permanent: retrying cannot fix it.
     await updateQueueItem(queueId, {
-      status: "failed",
-      lastError: "Message not found",
+      status: "dead",
+      lastError: "Message not found for this organization",
       completedAt: new Date().toISOString(),
     });
-    return { ok: false, error: "Message not found" };
+    return { ok: false, error: "Message not found for this organization" };
+  }
+
+  const maxAttempts = queueItem.maxAttempts || 5;
+  if (attempts > maxAttempts) {
+    await updateQueueItem(queueId, {
+      status: "dead",
+      lastError: "Maximum attempts exceeded",
+      completedAt: new Date().toISOString(),
+    });
+    await updateMessageStatus(message.id, "failed", {
+      error: "Maximum attempts exceeded",
+    });
+    await publishEvent({
+      orgId: message.orgId,
+      type: "processing_failed",
+      messageId: message.id,
+      meta: { error: "Maximum attempts exceeded", attempts, dead: true },
+    });
+    return { ok: false, error: "Maximum attempts exceeded" };
+  }
+
+  // Duplicate messages are persisted for audit but must never be re-processed.
+  if (message.status === "duplicate") {
+    await updateQueueItem(queueId, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+    });
+    await writeProcessingLog({
+      orgId: message.orgId,
+      messageId: message.id,
+      stage: "complete",
+      level: "info",
+      detail: "Duplicate message skipped",
+    });
+    return { ok: true, outcome: "duplicate" };
   }
 
   await updateMessageStatus(message.id, "processing");
@@ -253,13 +298,17 @@ export async function processQueueJob(queueId: string): Promise<{
     const errMsg = error instanceof Error ? error.message : "Unknown processing error";
     const latencyMs = Date.now() - started;
 
-    await writeProcessingLog({
-      orgId: message.orgId,
-      messageId: message.id,
-      stage: "error",
-      level: "error",
-      detail: errMsg,
-    });
+    try {
+      await writeProcessingLog({
+        orgId: message.orgId,
+        messageId: message.id,
+        stage: "error",
+        level: "error",
+        detail: errMsg,
+      });
+    } catch (logError) {
+      console.error("Unable to persist processing error log:", logError);
+    }
 
     // Persist a failed extraction record so the AI logs page reflects real
     // processing failures. Never overwrite a record that already succeeded.
@@ -292,21 +341,41 @@ export async function processQueueJob(queueId: string): Promise<{
       }
     }
 
-    const dead = attempts >= (queueItem.maxAttempts || 5);
-    await updateQueueItem(queueId, {
-      status: dead ? "dead" : "pending",
-      lastError: errMsg,
-      scheduledAt: new Date(Date.now() + attempts * 15_000).toISOString(),
-      ...(dead ? { completedAt: new Date().toISOString() } : {}),
-    });
-    // While a retry is scheduled the message is queued, not permanently failed.
-    await updateMessageStatus(message.id, dead ? "failed" : "queued", { error: errMsg });
-    await publishEvent({
-      orgId: message.orgId,
-      type: "processing_failed",
-      messageId: message.id,
-      meta: { error: errMsg, attempts, dead },
-    });
+    const dead = attempts >= maxAttempts;
+
+    // Best-effort bookkeeping: if Firestore is unavailable these calls can
+    // fail too. Don't let that mask the original processing error; the stale
+    // lease will be reclaimed by redrive once it expires.
+    try {
+      await updateQueueItem(queueId, {
+        status: dead ? "dead" : "pending",
+        lastError: errMsg,
+        scheduledAt: new Date(Date.now() + attempts * 15_000).toISOString(),
+        ...(dead ? { completedAt: new Date().toISOString() } : {}),
+      });
+    } catch (queueError) {
+      console.error("Unable to update queue item after failure:", queueError);
+    }
+
+    try {
+      // While a retry is scheduled the message is queued, not permanently failed.
+      await updateMessageStatus(message.id, dead ? "failed" : "queued", {
+        error: errMsg,
+      });
+    } catch (statusError) {
+      console.error("Unable to update message status after failure:", statusError);
+    }
+
+    try {
+      await publishEvent({
+        orgId: message.orgId,
+        type: "processing_failed",
+        messageId: message.id,
+        meta: { error: errMsg, attempts, dead },
+      });
+    } catch (eventError) {
+      console.error("Unable to publish processing_failed event:", eventError);
+    }
 
     return { ok: false, error: errMsg };
   }
@@ -528,11 +597,14 @@ async function finalize(
  * Awaited so Vercel doesn't kill the process before the request is sent.
  * Failures are logged but do not throw — the cron redrive recovers pending jobs.
  */
-export async function enqueueWorkerProcessing(queueId: string, origin: string): Promise<void> {
+export async function enqueueWorkerProcessing(
+  queueId: string,
+  origin: string
+): Promise<boolean> {
   const secret = process.env.PIPELINE_WORKER_SECRET;
   if (!secret) {
     console.error("PIPELINE_WORKER_SECRET is not set; cannot enqueue worker processing.");
-    return;
+    return false;
   }
   const url = `${origin}/api/workers/process-message`;
 
@@ -547,9 +619,12 @@ export async function enqueueWorkerProcessing(queueId: string, origin: string): 
     });
     if (!res.ok) {
       console.error(`Worker enqueue returned ${res.status} for queueId=${queueId}`);
+      return false;
     }
+    return true;
   } catch (err) {
     // Non-fatal: the cron redrive will pick up pending jobs
     console.error("Failed to enqueue worker:", err);
+    return false;
   }
 }

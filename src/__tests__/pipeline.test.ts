@@ -7,6 +7,7 @@ import {
   textSimilarity,
 } from "@/lib/pipeline/normalize";
 import { whatsappConnector } from "@/lib/pipeline/connectors";
+import { enqueueWorkerProcessing } from "@/lib/pipeline/worker";
 import { encrypt, decrypt } from "@/lib/crypto";
 import { normalizePhone } from "@/lib/pipeline/contact-actions";
 
@@ -504,6 +505,65 @@ describe("WhatsApp Connector", () => {
     process.env.WHATSAPP_APP_SECRET = originalSecret;
   });
 
+  it("should verify POST signatures even when handshake query params are present", async () => {
+    const originalSecret = process.env.WHATSAPP_APP_SECRET;
+    const originalToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    process.env.WHATSAPP_APP_SECRET = "test-app-secret";
+    process.env.WHATSAPP_VERIFY_TOKEN = "test_token";
+
+    const params = new URLSearchParams({
+      "hub.mode": "subscribe",
+      "hub.verify_token": "test_token",
+      "hub.challenge": "challenge_123",
+    });
+    const rawBody = JSON.stringify({ object: "whatsapp_business_account" });
+
+    const unsigned = await whatsappConnector.verifyWebhook!({
+      headers: new Headers(),
+      rawBody,
+      searchParams: params,
+      method: "POST",
+    });
+    expect(unsigned.ok).toBe(false);
+    expect(unsigned.status).toBe(401);
+
+    const signature =
+      "sha256=" +
+      crypto.createHmac("sha256", process.env.WHATSAPP_APP_SECRET).update(rawBody).digest("hex");
+    const signed = await whatsappConnector.verifyWebhook!({
+      headers: new Headers({ "x-hub-signature-256": signature }),
+      rawBody,
+      searchParams: params,
+      method: "POST",
+    });
+    expect(signed.ok).toBe(true);
+
+    process.env.WHATSAPP_APP_SECRET = originalSecret;
+    process.env.WHATSAPP_VERIFY_TOKEN = originalToken;
+  });
+
+  it("should reject a signature computed from a tampered body", async () => {
+    const originalSecret = process.env.WHATSAPP_APP_SECRET;
+    process.env.WHATSAPP_APP_SECRET = "test-app-secret";
+
+    const originalBody = JSON.stringify({ object: "whatsapp_business_account" });
+    const tamperedBody = JSON.stringify({ object: "whatsapp_business_account", extra: true });
+    const signature =
+      "sha256=" +
+      crypto.createHmac("sha256", process.env.WHATSAPP_APP_SECRET).update(originalBody).digest("hex");
+
+    const result = await whatsappConnector.verifyWebhook!({
+      headers: new Headers({ "x-hub-signature-256": signature }),
+      rawBody: tamperedBody,
+      searchParams: new URLSearchParams(),
+      method: "POST",
+    });
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(401);
+
+    process.env.WHATSAPP_APP_SECRET = originalSecret;
+  });
+
   it("should reject a missing or invalid signature when app secret is configured", async () => {
     const originalSecret = process.env.WHATSAPP_APP_SECRET;
     process.env.WHATSAPP_APP_SECRET = "test-app-secret";
@@ -602,5 +662,32 @@ describe("Encryption", () => {
     expect(enc1).not.toBe(enc2); // Different IVs
     expect(decrypt(enc1)).toBe(input);
     expect(decrypt(enc2)).toBe(input);
+  });
+});
+
+describe("Worker enqueue contract", () => {
+  it("returns false when the worker secret is not configured", async () => {
+    const originalSecret = process.env.PIPELINE_WORKER_SECRET;
+    delete process.env.PIPELINE_WORKER_SECRET;
+
+    await expect(
+      enqueueWorkerProcessing("queue_1", "https://example.com")
+    ).resolves.toBe(false);
+
+    process.env.PIPELINE_WORKER_SECRET = originalSecret;
+  });
+
+  it("returns true only when the worker accepts the job", async () => {
+    process.env.PIPELINE_WORKER_SECRET = "test-worker-secret";
+
+    mockFetch.mockResolvedValueOnce({ ok: true } as Response);
+    await expect(
+      enqueueWorkerProcessing("queue_1", "https://example.com")
+    ).resolves.toBe(true);
+
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
+    await expect(
+      enqueueWorkerProcessing("queue_2", "https://example.com")
+    ).resolves.toBe(false);
   });
 });

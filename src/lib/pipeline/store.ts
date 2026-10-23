@@ -161,6 +161,13 @@ export async function getConversationContext(
   if (!convSnap.exists) return [];
 
   const conv = convSnap.data() as Conversation;
+  // Never build conversation context from another tenant's records, even if a
+  // malformed message references a foreign conversation id.
+  if (conv.orgId !== orgId) {
+    console.warn("getConversationContext denied cross-org conversation access");
+    return [];
+  }
+
   const ids = (conv.recentMessageIds || []).slice(0, limit);
   if (ids.length === 0) return [];
 
@@ -169,6 +176,10 @@ export async function getConversationContext(
     const msg = await db.collection("whatsappMessages").doc(id).get();
     if (msg.exists) {
       const data = msg.data() as InboundMessage;
+      if (data.orgId !== orgId) {
+        console.warn("getConversationContext skipped cross-org message");
+        continue;
+      }
       if (data.text) texts.push(`${data.sender}: ${data.text}`);
     }
   }
@@ -359,8 +370,16 @@ export async function saveAiExtraction(record: Omit<AiExtractionRecord, "id">): 
   // lets the AI logs page map logs 1:1 to actual processing records.
   const docId = `${record.orgId}__${record.messageId}`.replace(/\//g, "_");
   const ref = db.collection("aiExtractions").doc(docId);
-  const full: AiExtractionRecord = { id: ref.id, ...record };
-  await ref.set(full, { merge: true });
+
+  // Replace the whole record (instead of merging) so a successful retry clears
+  // stale `error`, `taskId`, or `contactId` fields left by a failed attempt.
+  // Firestore rejects undefined values, so omit them explicitly.
+  const defined = Object.fromEntries(
+    Object.entries(record).filter(([, value]) => value !== undefined)
+  ) as Omit<AiExtractionRecord, "id">;
+  const full: AiExtractionRecord = { id: ref.id, ...defined };
+
+  await ref.set(full);
   return full;
 }
 
@@ -395,11 +414,20 @@ export async function getQueueItem(queueId: string): Promise<ProcessingQueueItem
   return snap.data() as ProcessingQueueItem;
 }
 
-export async function getInboundMessage(messageId: string): Promise<InboundMessage | null> {
+export async function getInboundMessage(
+  messageId: string,
+  orgId?: string
+): Promise<InboundMessage | null> {
   const db = getAdminDb();
   const snap = await db.collection("whatsappMessages").doc(messageId).get();
   if (!snap.exists) return null;
-  return snap.data() as InboundMessage;
+
+  const message = snap.data() as InboundMessage;
+  if (orgId && message.orgId !== orgId) {
+    console.warn("getInboundMessage denied cross-org message access");
+    return null;
+  }
+  return message;
 }
 
 export async function ensureWhatsAppConnection(orgId: string, phoneNumberId: string) {

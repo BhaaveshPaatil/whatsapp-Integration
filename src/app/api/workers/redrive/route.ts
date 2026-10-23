@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminDb, isAdminConfigured } from "@/lib/firebase-admin";
-import { enqueueWorkerProcessing } from "@/lib/pipeline/worker";
+import {
+  enqueueWorkerProcessing,
+  LEASE_DURATION_MS,
+} from "@/lib/pipeline/worker";
 import type { ProcessingQueueItem } from "@/types";
 
 export const runtime = "nodejs";
@@ -42,27 +45,80 @@ async function redrive(req: NextRequest, limitOverride?: number): Promise<NextRe
   const db = getAdminDb();
   const now = new Date().toISOString();
 
-  const snap = await db
-    .collection("processingQueue")
-    .where("status", "in", ["pending", "failed"])
-    .limit(limit)
-    .get();
+  // Retryable jobs whose backoff has elapsed, plus jobs stuck in "processing"
+  // because the worker crashed before clearing its lease.
+  const [retryableSnap, processingSnap] = await Promise.all([
+    db
+      .collection("processingQueue")
+      .where("status", "in", ["pending", "failed"])
+      .where("scheduledAt", "<=", now)
+      .limit(limit)
+      .get(),
+    db
+      .collection("processingQueue")
+      .where("status", "==", "processing")
+      .limit(limit)
+      .get(),
+  ]);
 
-  const due = snap.docs
-    .map((d) => d.data() as ProcessingQueueItem)
-    .filter((item) => !item.scheduledAt || item.scheduledAt <= now);
+  const leaseExpired = (item: ProcessingQueueItem): boolean => {
+    if (!item.lockedAt) return true;
+    const lockedMs = Date.parse(item.lockedAt);
+    return Number.isNaN(lockedMs) || Date.now() - lockedMs >= LEASE_DURATION_MS;
+  };
+
+  const seen = new Set<string>();
+  const due = [...retryableSnap.docs, ...processingSnap.docs]
+    .filter((doc) => {
+      if (seen.has(doc.id)) return false;
+      seen.add(doc.id);
+
+      const item = doc.data() as ProcessingQueueItem;
+      return item.status !== "processing" || leaseExpired(item);
+    })
+    .slice(0, limit);
 
   const results: { id: string; ok: boolean }[] = [];
-  for (const item of due) {
-    try {
-      await enqueueWorkerProcessing(item.id, origin);
-      results.push({ id: item.id, ok: true });
-    } catch {
-      results.push({ id: item.id, ok: false });
+  for (const doc of due) {
+    const item = doc.data() as ProcessingQueueItem;
+    const queueId = item.id || doc.id;
+    const maxAttempts = item.maxAttempts || 5;
+
+    // Never redrive a job that has exhausted its retry budget; expire it so it
+    // stops consuming cron slots.
+    if ((item.attempts || 0) >= maxAttempts) {
+      try {
+        await doc.ref.update({
+          status: "dead",
+          lastError: item.lastError || "Maximum attempts exceeded",
+          completedAt: now,
+          updatedAt: now,
+        });
+        if (item.messageId) {
+          await db.collection("whatsappMessages").doc(item.messageId).update({
+            status: "failed",
+            error: item.lastError || "Maximum attempts exceeded",
+            updatedAt: now,
+          });
+        }
+      } catch (error) {
+        console.error(`Unable to mark queue item ${queueId} dead:`, error);
+      }
+      results.push({ id: queueId, ok: false });
+      continue;
     }
+
+    // enqueueWorkerProcessing returns false instead of throwing, so report the
+    // real outcome rather than assuming every attempt succeeded.
+    const ok = await enqueueWorkerProcessing(queueId, origin);
+    results.push({ id: queueId, ok });
   }
 
-  return NextResponse.json({ redriven: due.length, results });
+  return NextResponse.json({
+    redriven: due.length,
+    enqueued: results.filter((r) => r.ok).length,
+    results,
+  });
 }
 
 /** Vercel Cron hits GET */

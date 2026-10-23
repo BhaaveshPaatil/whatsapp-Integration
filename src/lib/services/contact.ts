@@ -14,13 +14,41 @@ function createdAtMillis(contact: Contact): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-function mapContactDoc(
+/** Accept either an ISO string or a Firestore Timestamp and normalize to ISO. */
+function toIsoString(value: unknown): string | undefined {
+  if (typeof value === "string") return value || undefined;
+
+  if (value && typeof value === "object" && "toDate" in value) {
+    const toDate = (value as { toDate?: unknown }).toDate;
+    if (typeof toDate === "function") {
+      try {
+        const date = (toDate as () => Date).call(value);
+        if (date instanceof Date && !Number.isNaN(date.getTime())) {
+          return date.toISOString();
+        }
+      } catch {
+        return undefined;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+export function mapContactDoc(
   snapshot: { id: string; data: () => Record<string, unknown> }
 ): Contact {
   const data = snapshot.data();
   return {
     ...(data as unknown as Contact),
     id: (data.id as string) || snapshot.id,
+    createdAt: toIsoString(data.createdAt) || "",
+    updatedAt: toIsoString(data.updatedAt) || "",
+    skills: Array.isArray(data.skills)
+      ? (data.skills as unknown[]).filter(
+          (skill): skill is string => typeof skill === "string"
+        )
+      : undefined,
     verifiedFields: Array.isArray(data.verifiedFields)
       ? (data.verifiedFields as string[])
       : [],

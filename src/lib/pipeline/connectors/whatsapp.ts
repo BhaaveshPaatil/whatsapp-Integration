@@ -113,15 +113,19 @@ export const whatsappConnector: MessageConnector = {
     return sendWhatsAppMessage(to, text);
   },
 
-  async verifyWebhook({ searchParams, headers, rawBody }) {
+  async verifyWebhook({ searchParams, headers, rawBody, method }) {
     const mode = searchParams.get("hub.mode");
     const token = searchParams.get("hub.verify_token");
     const challenge = searchParams.get("hub.challenge");
     const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
 
     // GET subscription handshake. Never fall through to the POST path here:
-    // an invalid verify token must be rejected.
-    if (mode === "subscribe") {
+    // an invalid verify token must be rejected. A POST must never be treated
+    // as a handshake even if it carries the hub.* query parameters, otherwise
+    // an attacker could bypass signature verification.
+    const isHandshake =
+      mode === "subscribe" && (method === undefined || method.toUpperCase() === "GET");
+    if (isHandshake) {
       if (!verifyToken) {
         return { ok: false, status: 503, body: "WHATSAPP_VERIFY_TOKEN is not configured" };
       }
@@ -155,16 +159,19 @@ export const whatsappConnector: MessageConnector = {
       return { ok: true };
     }
 
-    const signature = headers.get("x-hub-signature-256") || "";
+    // Meta sends `sha256=<hex hmac>` computed over the exact raw request body.
+    const signature = (headers.get("x-hub-signature-256") || "").trim();
     if (!signature) {
       return { ok: false, status: 401, body: "Missing signature" };
     }
 
     const expected =
-      "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+      "sha256=" + crypto.createHmac("sha256", appSecret).update(rawBody, "utf8").digest("hex");
+    const signatureBuffer = Buffer.from(signature, "utf8");
+    const expectedBuffer = Buffer.from(expected, "utf8");
     const valid =
-      signature.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+      signatureBuffer.length === expectedBuffer.length &&
+      crypto.timingSafeEqual(signatureBuffer, expectedBuffer);
 
     if (!valid) {
       return { ok: false, status: 401, body: "Invalid signature" };

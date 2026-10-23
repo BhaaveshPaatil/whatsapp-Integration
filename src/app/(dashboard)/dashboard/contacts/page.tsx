@@ -15,6 +15,7 @@ import {
   Sparkles,
   ShieldCheck,
   Building2,
+  AlertCircle,
 } from "lucide-react";
 
 function formatDate(iso?: string): string {
@@ -39,36 +40,63 @@ function initials(name?: string): string {
 }
 
 export default function ContactsPage() {
-  const { user } = useAuthStore();
+  const { user, isLoading: isAuthLoading } = useAuthStore();
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const orgId = user?.orgId;
+  const hasUser = Boolean(user);
+
   useEffect(() => {
-    if (!user?.orgId) {
+    // Wait for the auth profile to resolve so we don't briefly render an empty
+    // state (or query with a missing orgId) while the session is loading.
+    if (isAuthLoading && !hasUser) {
+      setIsLoading(true);
+      return;
+    }
+
+    if (!orgId) {
       setContacts([]);
+      setError(null);
       setIsLoading(false);
       return;
     }
 
+    // Drop any contacts from a previous organization before subscribing.
+    setContacts([]);
     setIsLoading(true);
     setError(null);
 
-    const unsubscribe = subscribeToOrgContacts(
-      user.orgId,
-      (rows) => {
-        setContacts(rows);
-        setIsLoading(false);
-      },
-      (subscriptionError) => {
-        setError(subscriptionError.message);
-        setIsLoading(false);
-      }
-    );
+    let unsubscribe: (() => void) | undefined;
 
-    return unsubscribe;
-  }, [user?.orgId]);
+    try {
+      // The query is scoped to the signed-in user's organization; Firestore
+      // rules independently enforce sameOrg() on the contacts collection.
+      unsubscribe = subscribeToOrgContacts(
+        orgId,
+        (rows) => {
+          setContacts(rows);
+          setError(null);
+          setIsLoading(false);
+        },
+        (subscriptionError) => {
+          setError(subscriptionError.message);
+          setIsLoading(false);
+        }
+      );
+    } catch (subscriptionError) {
+      setError(
+        subscriptionError instanceof Error
+          ? subscriptionError.message
+          : "Unable to load contacts."
+      );
+      setIsLoading(false);
+    }
+
+    return () => unsubscribe?.();
+  }, [orgId, hasUser, isAuthLoading]);
 
   const filteredContacts = useMemo(() => {
     const queryText = searchQuery.trim().toLowerCase();
@@ -143,6 +171,14 @@ export default function ContactsPage() {
         <div className="harbor-card p-8 flex items-center justify-center text-xs text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin mr-2 text-primary" />
           Loading contacts...
+        </div>
+      ) : error ? (
+        <div className="harbor-card p-10 text-center space-y-2">
+          <AlertCircle className="h-8 w-8 text-red-500/70 mx-auto" />
+          <p className="text-sm font-medium text-foreground">Could not load contacts</p>
+          <p className="text-xs text-muted-foreground max-w-md mx-auto">
+            Check that you are signed in to the correct organization, then refresh the page.
+          </p>
         </div>
       ) : filteredContacts.length === 0 ? (
         <div className="harbor-card p-10 text-center space-y-2">

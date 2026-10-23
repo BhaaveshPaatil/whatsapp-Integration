@@ -19,6 +19,7 @@ export async function GET(req: NextRequest) {
     headers: req.headers,
     rawBody: "",
     searchParams: req.nextUrl.searchParams,
+    method: req.method,
   });
 
   if (result.ok && result.challenge) {
@@ -62,6 +63,7 @@ export async function POST(req: NextRequest) {
     headers: req.headers,
     rawBody,
     searchParams: req.nextUrl.searchParams,
+    method: req.method,
   });
 
   if (!verified.ok) {

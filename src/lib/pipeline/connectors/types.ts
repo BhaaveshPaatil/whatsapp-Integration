@@ -32,5 +32,6 @@ export interface MessageConnector {
     headers: Headers;
     rawBody: string;
     searchParams: URLSearchParams;
+    method?: string;
   }): Promise<{ ok: boolean; challenge?: string; status?: number; body?: string }>;
 }

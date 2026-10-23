@@ -98,6 +98,19 @@ export default function AILogsPage() {
     [logs, pipelineLogs]
   );
 
+  // Join each extraction to the pipeline records for the same message so the
+  // AI log entry shows the processing stages that actually produced it.
+  const pipelineByMessage = useMemo(() => {
+    const map = new Map<string, ProcessingLog[]>();
+    for (const log of pipelineLogs) {
+      if (!log.messageId) continue;
+      const rows = map.get(log.messageId) || [];
+      rows.push(log);
+      map.set(log.messageId, rows);
+    }
+    return map;
+  }, [pipelineLogs]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -152,7 +165,11 @@ export default function AILogsPage() {
         )}
 
         <div className="divide-y divide-border">
-          {logs.map((log) => (
+          {logs.map((log) => {
+            const related = pipelineByMessage.get(log.messageId) || [];
+            const latest = related[0];
+
+            return (
             <div key={log.id} className="py-4 space-y-3">
               <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
                 <div className="flex items-center space-x-2">
@@ -227,14 +244,21 @@ export default function AILogsPage() {
                 </div>
               </div>
 
-              {(log.taskId || log.contactId) && (
-                <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground font-mono">
-                  {log.taskId && <span>task: {log.taskId}</span>}
-                  {log.contactId && <span>contact: {log.contactId}</span>}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-3 text-[10px] text-muted-foreground font-mono">
+                {log.taskId && <span>task: {log.taskId}</span>}
+                {log.contactId && <span>contact: {log.contactId}</span>}
+                {latest ? (
+                  <span>
+                    processing: {related.length} record{related.length === 1 ? "" : "s"} | latest{" "}
+                    {latest.stage} ({latest.level}) - {latest.detail}
+                  </span>
+                ) : (
+                  <span>processing: no stage records linked</span>
+                )}
+              </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

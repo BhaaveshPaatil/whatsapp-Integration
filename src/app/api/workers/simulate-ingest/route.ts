@@ -57,6 +57,7 @@ export async function POST(req: NextRequest) {
     meta: { simulated: true },
   });
 
+  let enqueued = false;
   if (!isDuplicate && queueItem.id) {
     await publishEvent({
       orgId,
@@ -64,12 +65,14 @@ export async function POST(req: NextRequest) {
       messageId: message.id,
       meta: { queueId: queueItem.id },
     });
-    enqueueWorkerProcessing(queueItem.id, req.nextUrl.origin);
+    // Awaited so the request is not terminated before the worker is dispatched.
+    enqueued = await enqueueWorkerProcessing(queueItem.id, req.nextUrl.origin);
   }
 
   return NextResponse.json({
     messageId: message.id,
     queueId: queueItem.id || null,
     isDuplicate,
+    enqueued,
   });
 }
