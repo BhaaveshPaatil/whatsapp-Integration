@@ -27,15 +27,13 @@ export async function POST(req: NextRequest) {
 
     // 2. Parse and validate body
     const body = await req.json();
-    const {
-      orgId,
-      whatsappPhoneNumberId,
-      whatsappBusinessAccountId,
-      whatsappAccessToken,
-      geminiApiKey,
-      orgName,
-      verifyOnly,
-    } = body;
+const orgId = String(body.orgId || "").trim();
+    const whatsappPhoneNumberId = String(body.whatsappPhoneNumberId || "").trim();
+    const whatsappBusinessAccountId = String(body.whatsappBusinessAccountId || "").trim();
+    const whatsappAccessToken = String(body.whatsappAccessToken || "").trim();
+    const geminiApiKey = body.geminiApiKey;
+    const orgName = body.orgName;
+    const verifyOnly = body.verifyOnly; 0a900d2 (Update project)
 
     if (!orgId || !whatsappPhoneNumberId || !whatsappBusinessAccountId) {
       return NextResponse.json(

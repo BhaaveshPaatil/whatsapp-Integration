@@ -13,9 +13,9 @@ build/
 .env.*
 !.env.example
 
-# Firebase
-.firebase/
-firebase-debug.log
+# Firebase service account (never commit)
+firebase-service-account.json
+*-firebase-adminsdk-*.json
 
 # Logs
 *.log

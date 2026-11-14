@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminConfigured } from "@/lib/firebase-admin";
 import { saveInboundMessage } from "@/lib/pipeline/store";
 import { publishEvent } from "@/lib/pipeline/events";
-import { enqueueWorkerProcessing } from "@/lib/pipeline/worker";
+import { runWorkerForQueue } from "@/lib/pipeline/worker";
 import type { NormalizedInboundMessage } from "@/lib/pipeline/connectors";
 
 export const runtime = "nodejs";
@@ -65,8 +65,7 @@ export async function POST(req: NextRequest) {
       messageId: message.id,
       meta: { queueId: queueItem.id },
     });
-    // Awaited so the request is not terminated before the worker is dispatched.
-    enqueued = await enqueueWorkerProcessing(queueItem.id, req.nextUrl.origin);
+await runWorkerForQueue(queueItem.id);
   }
 
   return NextResponse.json({

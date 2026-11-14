@@ -3,11 +3,12 @@ import { createRateLimiter as whatsappRateLimit } from "@/lib/rate-limit";
 import { whatsappConnector } from "@/lib/pipeline/connectors";
 import { publishEvent } from "@/lib/pipeline/events";
 import { resolveOrgIdForWhatsApp, saveInboundMessage } from "@/lib/pipeline/store";
-import { enqueueWorkerProcessing } from "@/lib/pipeline/worker";
+import { runWorkerForQueue } from "@/lib/pipeline/worker";
 import { isAdminConfigured } from "@/lib/firebase-admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const webhookRateLimit = whatsappRateLimit({
   windowMs: 60 * 1000,
@@ -100,6 +101,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ status: "EVENT_RECEIVED" }, { status: 200 });
   }
 
+  // NOTE: When FIREBASE_SERVICE_ACCOUNT_JSON is missing, return 503 instead of 200 so that
+  // Meta retries delivery and operators see the failure in server logs (rather than
+  // silently acknowledging and discarding every inbound message).
   if (!isAdminConfigured()) {
     if (process.env.NODE_ENV === "production") {
       logStructured("error", "Firebase Admin is not configured; refusing to acknowledge webhook in production.", {
@@ -115,13 +119,13 @@ export async function POST(req: NextRequest) {
     logStructured("warn", "FIREBASE_SERVICE_ACCOUNT_JSON is not configured; acknowledging webhook without persistence.", {
       requestId,
       durationMs: Date.now() - startTime,
+      incomingCount: normalized.length,
     });
-    return NextResponse.json({ status: "EVENT_RECEIVED", persisted: false }, { status: 200 });
   }
 
   try {
-    const origin = req.nextUrl.origin;
     const accepted: string[] = [];
+    const failed: Array<{ externalId: string; error: string }> = [];
 
     for (const item of normalized) {
       logStructured("info", "Beginning processing loop for inbound WhatsApp item", {
@@ -131,7 +135,21 @@ export async function POST(req: NextRequest) {
         sender: item.sender,
       });
 
-      const orgId = await resolveOrgIdForWhatsApp(item.phoneNumberId);
+      let orgId: string;
+      try {
+        orgId = await resolveOrgIdForWhatsApp(item.phoneNumberId);
+      } catch (orgErr: any) {
+        const reason = orgErr?.message || "org_mapping_failed";
+        logStructured("error", "Organization mapping failed for inbound message", {
+          requestId,
+          phoneNumberId: item.phoneNumberId,
+          error: reason,
+          hint: "Save WhatsApp settings in Dashboard → Settings to map Phone Number ID to your org, OR set DEFAULT_ORG_ID in .env.local for local dev.",
+        });
+        failed.push({ externalId: item.externalId, error: `org_mapping_failed: ${reason}` });
+        continue;
+      }
+
       logStructured("info", "Organization mapped successfully", {
         requestId,
         phoneNumberId: item.phoneNumberId,
@@ -144,52 +162,82 @@ export async function POST(req: NextRequest) {
         externalId: item.externalId,
       });
 
-      const { message, queueItem, isDuplicate } = await saveInboundMessage(orgId, item);
+      try {
+        const { message, queueItem, isDuplicate } = await saveInboundMessage(orgId, item);
 
-      logStructured("info", "Message persistence stage finished", {
-        requestId,
-        messageId: message.id,
-        isDuplicate,
-        queueId: queueItem.id,
-      });
-
-      await publishEvent({
-        orgId,
-        type: isDuplicate ? "duplicate_detected" : "message_received",
-        messageId: message.id,
-        meta: {
-          source: "whatsapp",
-          sender: message.sender,
-          externalId: message.externalId,
-        },
-      });
-
-      if (!isDuplicate && queueItem.id) {
-        await publishEvent({
-          orgId,
-          type: "message_queued",
-          messageId: message.id,
-          meta: { queueId: queueItem.id },
-        });
-
-        logStructured("info", "Enqueueing worker processing flow", {
+        logStructured("info", "Message persistence stage finished", {
           requestId,
+          messageId: message.id,
+          isDuplicate,
           queueId: queueItem.id,
         });
 
-        await enqueueWorkerProcessing(queueItem.id, origin);
-        accepted.push(queueItem.id);
+        await publishEvent({
+          orgId,
+          type: isDuplicate ? "duplicate_detected" : "message_received",
+          messageId: message.id,
+          meta: {
+            source: "whatsapp",
+            sender: message.sender,
+            externalId: message.externalId,
+          },
+        });
+
+        if (!isDuplicate && queueItem.id) {
+          await publishEvent({
+            orgId,
+            type: "message_queued",
+            messageId: message.id,
+            meta: { queueId: queueItem.id },
+          });
+
+          logStructured("info", "Running AI worker inline for queue item", {
+            requestId,
+            queueId: queueItem.id,
+          });
+
+          await runWorkerForQueue(queueItem.id);
+          accepted.push(queueItem.id);
+        }
+      } catch (persistErr: any) {
+        logStructured("error", "Per-message persistence failed", {
+          requestId,
+          externalId: item.externalId,
+          error: persistErr?.message,
+        });
+        failed.push({ externalId: item.externalId, error: persistErr?.message || "persist_failed" });
       }
     }
 
-    logStructured("info", "Webhook finished successfully", {
+    const durationMs = Date.now() - startTime;
+    logStructured("info", "Webhook finished processing", {
       requestId,
       queued: accepted.length,
-      durationMs: Date.now() - startTime,
+      failed: failed.length,
+      durationMs,
     });
 
+    // Only return 500 when EVERY item in the batch genuinely failed.
+    // Duplicates count as handled (they don't bump `accepted` but they also don't fail),
+    // so compare `failed` against the total normalized count rather than `accepted`.
+    if (failed.length === normalized.length && failed.length > 0) {
+      return NextResponse.json(
+        {
+          status: "ERROR",
+          error: "all_messages_failed",
+          failed,
+        },
+        { status: 500 }
+      );
+    }
+
     return NextResponse.json(
-      { status: "EVENT_RECEIVED", queued: accepted.length },
+      {
+        status: "EVENT_RECEIVED",
+        queued: accepted.length,
+        failed: failed.length,
+        ...(failed.length > 0 ? { failed } : {}),
+      },
       { status: 200 }
     );
   } catch (error: unknown) {
@@ -199,6 +247,6 @@ export async function POST(req: NextRequest) {
       errorStack: error instanceof Error ? error.stack : undefined,
       durationMs: Date.now() - startTime,
     });
-    return NextResponse.json({ status: "PERSIST_FAILED" }, { status: 500 });
+    return NextResponse.json({ status: "ERROR", error: "persist_failed" }, { status: 500 });
   }
 }

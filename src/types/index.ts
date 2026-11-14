@@ -171,7 +171,10 @@ export type AiExtractionOutcome =
   | "duplicate"
   | "failed";
 
+export type MessageClassification = "actionable" | "ambiguous" | "non_actionable";
+
 export interface StructuredAiAction {
+  classification?: MessageClassification;
   intent: AiIntent;
   title: string;
   description: string;

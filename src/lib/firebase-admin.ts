@@ -1,43 +1,44 @@
-
-import {
-  applicationDefault,
-  cert,
-  getApps,
-  initializeApp,
-  type App,
-  type ServiceAccount,
-} from "firebase-admin/app";
-
-import {
-  getFirestore,
-  type Firestore,
-} from "firebase-admin/firestore";
+import { readFileSync, existsSync } from "fs";
+import { cert, getApps, initializeApp, type App, type ServiceAccount } from "firebase-admin/app";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
 let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
+let serviceAccountCache: ServiceAccount | null | undefined = undefined;
 
-function parseServiceAccount(): ServiceAccount | null {
+function parseServiceAccount(): ServiceAccount | null | undefined {
+  if (serviceAccountCache !== undefined) return serviceAccountCache;
+
   const raw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(raw) as ServiceAccount;
-  } catch {
+  if (raw && raw.trim().length > 0) {
     try {
-      const decoded = Buffer.from(raw, "base64").toString("utf8");
-      return JSON.parse(decoded) as ServiceAccount;
+      serviceAccountCache = JSON.parse(raw) as ServiceAccount;
+      return serviceAccountCache;
     } catch {
-      console.error(
-        "Invalid FIREBASE_SERVICE_ACCOUNT_JSON format."
-      );
-      throw new Error(
-        "Firebase service-account JSON is invalid."
-      );
+      try {
+        serviceAccountCache = JSON.parse(Buffer.from(raw, "base64").toString("utf8")) as ServiceAccount;
+        return serviceAccountCache;
+      } catch {
+        console.error("[firebase-admin] Invalid FIREBASE_SERVICE_ACCOUNT_JSON (not JSON or base64-JSON)");
+      }
     }
   }
+
+  const filePath =
+    process.env.FIREBASE_SERVICE_ACCOUNT_PATH ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  if (filePath && existsSync(filePath)) {
+    try {
+      serviceAccountCache = JSON.parse(readFileSync(filePath, "utf8")) as ServiceAccount;
+      return serviceAccountCache;
+    } catch {
+      console.error("[firebase-admin] Invalid service account file at", filePath);
+    }
+  }
+
+  serviceAccountCache = null;
+  return serviceAccountCache;
 }
 
 export function getAdminApp(): App {
@@ -87,12 +88,10 @@ export function getAdminDb(): Firestore {
   }
 
   adminDb = getFirestore(getAdminApp());
+  adminDb.settings({ ignoreUndefinedProperties: true });
   return adminDb;
 }
 
 export function isAdminConfigured(): boolean {
-  return Boolean(
-    process.env.FIREBASE_SERVICE_ACCOUNT_JSON ||
-    process.env.GOOGLE_APPLICATION_CREDENTIALS
-  );
+  return Boolean(parseServiceAccount());
 }

@@ -37,8 +37,23 @@ export default function WhatsAppPage() {
   const [testResult, setTestResult] = useState<string | null>(null);
 
   // Live data
+  const [pipelineStatus, setPipelineStatus] = useState<{
+    ok: boolean;
+    blockers: string[];
+  } | null>(null);
+  const [isPipelineTesting, setIsPipelineTesting] = useState(false);
+  const [pipelineTestResult, setPipelineTestResult] = useState<string | null>(null);
   const [messages, setMessages] = useState<InboundMessage[]>([]);
   const [extractions, setExtractions] = useState<AiExtractionRecord[]>([]);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [extractionsError, setExtractionsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/whatsapp/status")
+      .then((r) => r.json())
+      .then((data) => setPipelineStatus({ ok: data.ok, blockers: data.blockers || [] }))
+      .catch(() => setPipelineStatus(null));
+  }, []);
 
   const webhookUrl =
     typeof window !== "undefined"
@@ -52,8 +67,32 @@ export default function WhatsAppPage() {
 
   useEffect(() => {
     if (!user?.orgId) return;
-    const unsubMsg = subscribeToWhatsAppMessages(user.orgId, setMessages, () => setMessages([]));
-    const unsubAi = subscribeToAiExtractions(user.orgId, setExtractions, () => setExtractions([]), 20);
+    setMessagesError(null);
+    setExtractionsError(null);
+    const unsubMsg = subscribeToWhatsAppMessages(
+      user.orgId,
+      (rows) => {
+        setMessagesError(null);
+        setMessages(rows);
+      },
+      (err) => {
+        console.error("[whatsapp] message listener error:", err);
+        setMessagesError(err.message || "Unable to load WhatsApp messages");
+        // Keep previously loaded messages visible so transient errors don't blank the UI
+      }
+    );
+    const unsubAi = subscribeToAiExtractions(
+      user.orgId,
+      (rows) => {
+        setExtractionsError(null);
+        setExtractions(rows);
+      },
+      (err) => {
+        console.error("[whatsapp] extractions listener error:", err);
+        setExtractionsError(err.message || "Unable to load AI extractions");
+      },
+      20
+    );
     return () => { unsubMsg(); unsubAi(); };
   }, [user?.orgId]);
 
@@ -133,6 +172,43 @@ export default function WhatsAppPage() {
     }
   };
 
+  const handleRunPipelineTest = async () => {
+    if (!organization?.id || !testMessage.trim()) return;
+    setIsPipelineTesting(true);
+    setPipelineTestResult(null);
+    try {
+      const idToken = await auth.currentUser?.getIdToken();
+      if (!idToken) {
+        setPipelineTestResult("Please sign in again.");
+        return;
+      }
+      const res = await fetch("/api/whatsapp/simulate-inbound", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({
+          orgId: organization.id,
+          text: testMessage,
+          sender: phone || "919545556045",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPipelineTestResult(`❌ ${data.error || "Pipeline test failed"}`);
+        return;
+      }
+      setPipelineTestResult(
+        `✅ Message saved (${data.messageId})${data.worker ? " · AI worker ran · check Tasks" : data.isDuplicate ? " · duplicate skipped" : ""}`
+      );
+    } catch (err: unknown) {
+      setPipelineTestResult(`❌ ${err instanceof Error ? err.message : "Pipeline test failed"}`);
+    } finally {
+      setIsPipelineTesting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -144,6 +220,19 @@ export default function WhatsAppPage() {
           Configure real-time message webhooks, test AI extraction, and monitor communication status.
         </p>
       </div>
+
+      {pipelineStatus && !pipelineStatus.ok && (
+        <div className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 space-y-2">
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-300">
+            Pipeline not ready — inbound WhatsApp messages will not create tasks
+          </p>
+          <ul className="text-xs text-amber-800 dark:text-amber-200/90 list-disc pl-4 space-y-1">
+            {pipelineStatus.blockers.map((b) => (
+              <li key={b}>{b}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Connection Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -233,18 +322,51 @@ export default function WhatsAppPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {lastMessage ? (
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>{lastMessage.senderName || lastMessage.sender}</span>
-                  <span>{timeAgo(lastMessage.createdAt)} · {lastMessage.status}</span>
-                </div>
-                <p className="text-xs font-mono bg-muted p-2.5 rounded-lg border border-border italic">
-                  &quot;{lastMessage.text || "[non-text message]"}&quot;
+            {messagesError && (
+              <div className="mb-3 p-2.5 text-xs text-red-700 dark:text-red-300 bg-red-500/10 border border-red-500/25 rounded-lg">
+                <p className="font-semibold">Listener error: {messagesError}</p>
+                <p className="mt-1 text-[11px] opacity-90">
+                  This usually means Firestore rules blocked the read. Make sure the logged-in user&apos;s <code className="font-mono">orgId</code> matches the <code className="font-mono">orgId</code> stored on the <code className="font-mono">whatsappMessages</code> documents.
                 </p>
               </div>
+            )}
+            {lastMessage ? (
+              <div className="space-y-2">
+                <div className="flex justify-between items-center text-xs text-muted-foreground flex-wrap gap-2">
+                  <span className="font-medium text-foreground">{lastMessage.senderName || lastMessage.sender}</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="capitalize px-2 py-0.5 rounded-full text-[10px] bg-muted font-medium border border-border">
+                      {lastMessage.status.replace(/_/g, " ")}
+                    </span>
+                    <span>{timeAgo(lastMessage.createdAt)}</span>
+                  </div>
+                </div>
+                <p className="text-xs font-mono bg-muted p-2.5 rounded-lg border border-border italic text-foreground">
+                  &quot;{lastMessage.text || "[non-text message]"}&quot;
+                </p>
+                {lastMessage.status === "failed" && lastMessage.error && (
+                  <p className="text-xs text-red-500 bg-red-500/10 p-2 rounded border border-red-500/20">
+                    Failed: {lastMessage.error}
+                  </p>
+                )}
+                {messages.length > 1 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    + {messages.length - 1} more message{messages.length > 2 ? "s" : ""} in this org.
+                  </p>
+                )}
+              </div>
             ) : (
-              <p className="text-xs text-muted-foreground">No messages received yet.</p>
+              <div className="space-y-1.5">
+                <p className="text-xs text-muted-foreground">No messages received yet.</p>
+                {!messagesError && (
+                  <ol className="text-[11px] text-muted-foreground list-decimal pl-4 space-y-0.5">
+                    <li>Set <code className="font-mono">FIREBASE_SERVICE_ACCOUNT_JSON</code> in <code className="font-mono">.env.local</code>.</li>
+                    <li>Save WhatsApp settings on the Settings page (maps Phone Number ID → org).</li>
+                    <li>Register a public URL (ngrok / deployment) with Meta; paste the Callback URL and verify token above.</li>
+                    <li>Or use the &quot;Test Full Pipeline&quot; button to create a simulated message right now.</li>
+                  </ol>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>
@@ -257,18 +379,45 @@ export default function WhatsAppPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {extractionsError && (
+              <div className="mb-3 p-2.5 text-xs text-red-700 dark:text-red-300 bg-red-500/10 border border-red-500/25 rounded-lg">
+                <p className="font-semibold">Listener error: {extractionsError}</p>
+              </div>
+            )}
             {lastExtraction ? (
               <div className="space-y-2">
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span className="font-medium text-primary">
-                    {lastExtraction.action?.intent?.replace(/_/g, " ")}
+                <div className="flex justify-between items-center text-xs text-muted-foreground flex-wrap gap-2">
+                  <span className="font-semibold text-primary capitalize">
+                    {lastExtraction.action?.classification ? `${lastExtraction.action.classification.replace(/_/g, " ")} (${lastExtraction.action?.intent?.replace(/_/g, " ")})` : lastExtraction.action?.intent?.replace(/_/g, " ")}
                   </span>
-                  <span>{timeAgo(lastExtraction.createdAt)} · {lastExtraction.outcome}</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] bg-muted font-medium border border-border capitalize">
+                      {lastExtraction.outcome.replace(/_/g, " ")}
+                    </span>
+                    <span>{timeAgo(lastExtraction.createdAt)}</span>
+                  </div>
                 </div>
                 <p className="text-xs text-foreground font-medium">{lastExtraction.action?.title}</p>
-                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold border border-primary/20">
-                  {Math.round((lastExtraction.action?.confidenceScore || 0) * 100)}% confidence
-                </span>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
+                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] bg-primary/10 text-primary font-semibold border border-primary/20">
+                    {Math.round((lastExtraction.action?.confidenceScore || 0) * 100)}% confidence
+                  </span>
+                  <span className="capitalize">Priority: <strong className="text-foreground">{lastExtraction.action?.priority}</strong></span>
+                  {lastExtraction.action?.dueDate && (
+                    <span>Due: <strong className="text-foreground">{lastExtraction.action.dueDate}</strong></span>
+                  )}
+                  {lastExtraction.action?.assigneeName && (
+                    <span>Assignee: <strong className="text-foreground">{lastExtraction.action.assigneeName}</strong></span>
+                  )}
+                  {lastExtraction.taskId && (
+                    <a
+                      href="/dashboard/tasks"
+                      className="text-primary hover:underline font-semibold ml-auto"
+                    >
+                      View Created Task →
+                    </a>
+                  )}
+                </div>
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">No AI extractions yet.</p>
@@ -371,6 +520,27 @@ export default function WhatsAppPage() {
                   </>
                 )}
               </Button>
+
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isPipelineTesting || !testMessage.trim()}
+                onClick={handleRunPipelineTest}
+                className="w-full space-x-2"
+              >
+                {isPipelineTesting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    <span>Test Full Pipeline → Create Task</span>
+                  </>
+                )}
+              </Button>
+
+              {pipelineTestResult && (
+                <p className="text-xs text-muted-foreground">{pipelineTestResult}</p>
+              )}
             </form>
           </CardContent>
         </Card>

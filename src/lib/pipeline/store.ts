@@ -18,12 +18,13 @@ export async function resolveOrgIdForWhatsApp(
   phoneNumberId?: string
 ): Promise<string> {
   const db = getAdminDb();
+  const normalizedPhoneId = phoneNumberId ? String(phoneNumberId).trim() : undefined;
 
-  if (phoneNumberId) {
-    console.log("Searching whatsappConnections for phoneNumberId:", phoneNumberId);
+  if (normalizedPhoneId) {
+    console.log("Searching whatsappConnections for phoneNumberId:", normalizedPhoneId);
     const connSnap = await db
       .collection("whatsappConnections")
-      .where("phoneNumberId", "==", phoneNumberId)
+      .where("phoneNumberId", "==", normalizedPhoneId)
       .where("active", "==", true)
       .limit(2)
       .get();
@@ -35,16 +36,16 @@ export async function resolveOrgIdForWhatsApp(
       return connSnap.docs[0].data().orgId as string;
     }
 
-    console.log("Searching organizations for whatsappPhoneNumberId:", phoneNumberId);
+    console.log("Searching organizations for whatsappPhoneNumberId:", normalizedPhoneId);
     const orgSnap = await db
       .collection("organizations")
-      .where("whatsappPhoneNumberId", "==", phoneNumberId)
+      .where("whatsappPhoneNumberId", "==", normalizedPhoneId)
       .limit(2)
       .get();
 
     if (!orgSnap.empty) {
       if (orgSnap.size > 1) {
-        console.warn(`[DUPLICATE MAPPING WARNING] Multiple organizations found with whatsappPhoneNumberId: ${phoneNumberId}`);
+        console.warn(`[DUPLICATE MAPPING WARNING] Multiple organizations found with whatsappPhoneNumberId: ${normalizedPhoneId}`);
       }
       return orgSnap.docs[0].id;
     }
@@ -66,7 +67,7 @@ export async function resolveOrgIdForWhatsApp(
     return process.env.DEFAULT_ORG_ID as string;
   }
 
-  const errorMsg = `[RESOLVE ORG FAILED] No active organization mapping found for WhatsApp Phone Number ID: ${phoneNumberId || "undefined"}`;
+  const errorMsg = `[RESOLVE ORG FAILED] No active organization mapping found for WhatsApp Phone Number ID: ${normalizedPhoneId || "undefined"}`;
   console.error(errorMsg);
   throw new Error(errorMsg);
 }
@@ -93,17 +94,19 @@ export async function findDuplicateByContentHash(
   withinMs = DUPLICATE_WINDOW_MS
 ): Promise<InboundMessage | null> {
   const db = getAdminDb();
-  const since = new Date(Date.now() - withinMs).toISOString();
   const snap = await db
     .collection("whatsappMessages")
     .where("orgId", "==", orgId)
     .where("contentHash", "==", hash)
-    .where("createdAt", ">=", since)
     .limit(1)
     .get();
 
   if (snap.empty) return null;
-  return snap.docs[0].data() as InboundMessage;
+  const msg = snap.docs[0].data() as InboundMessage;
+  if (Date.now() - new Date(msg.createdAt).getTime() <= withinMs) {
+    return msg;
+  }
+  return null;
 }
 
 export async function upsertConversation(input: {
@@ -228,16 +231,20 @@ export async function saveInboundMessage(
         return;
       }
 
-      // 2. Check duplicate by content hash
-      const since = new Date(Date.now() - DUPLICATE_WINDOW_MS).toISOString();
+      // 2. Check duplicate by content hash (query without range filter to avoid composite index requirement)
       const hashQuery = db
         .collection("whatsappMessages")
         .where("orgId", "==", orgId)
         .where("contentHash", "==", hash)
-        .where("createdAt", ">=", since)
         .limit(1);
       const hashSnap = await transaction.get(hashQuery);
-      const byHash = !hashSnap.empty ? (hashSnap.docs[0].data() as InboundMessage) : null;
+      let byHash: InboundMessage | null = null;
+      if (!hashSnap.empty) {
+        const potential = hashSnap.docs[0].data() as InboundMessage;
+        if (Date.now() - new Date(potential.createdAt).getTime() <= DUPLICATE_WINDOW_MS) {
+          byHash = potential;
+        }
+      }
 
       // 3. Get conversation
       const threadKey = `${normalized.source}:${normalized.sender}`;
@@ -285,16 +292,16 @@ export async function saveInboundMessage(
         source: normalized.source,
         externalId: normalized.externalId,
         sender: normalized.sender,
-        senderName: normalized.senderName,
+        senderName: normalized.senderName || "",
         text: normalized.text,
         normalizedText: normalizeText(normalized.text),
         type: normalized.type,
         status: byHash ? "duplicate" : "pending",
         contentHash: hash,
-        phoneNumberId: normalized.phoneNumberId,
+        phoneNumberId: normalized.phoneNumberId || "",
         conversationId,
-        rawPayload: normalized.rawPayload,
-        attachmentRefs: normalized.attachmentRefs,
+        rawPayload: normalized.rawPayload || {},
+        attachmentRefs: normalized.attachmentRefs || [],
         createdAt: now,
         updatedAt: now,
       };

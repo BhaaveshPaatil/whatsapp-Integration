@@ -58,34 +58,6 @@ export async function findBestMatchingTask(
   return best;
 }
 
-/**
- * Resolve an AI-suggested assignee name to a real org member UID.
- * Returns { assigneeId, assigneeName } if a match is found in the org.
- */
-async function resolveAssignee(
-  orgId: string,
-  suggestedName?: string
-): Promise<{ assigneeId: string; assigneeName: string }> {
-  if (!suggestedName) return { assigneeId: "", assigneeName: "" };
-
-  const db = getAdminDb();
-  const membersSnap = await db.collection("users").where("orgId", "==", orgId).get();
-
-  const lowerSuggested = suggestedName.toLowerCase().trim();
-  const matches = membersSnap.docs.filter((d) => {
-    const name = (d.data().displayName || "").toLowerCase().trim();
-    return name === lowerSuggested || name.includes(lowerSuggested) || lowerSuggested.includes(name);
-  });
-
-  if (matches.length === 1) {
-    const matched = matches[0].data();
-    return { assigneeId: matches[0].id, assigneeName: matched.displayName || suggestedName };
-  }
-
-  // No match or ambiguous — store the suggested name but don't assign
-  return { assigneeId: "", assigneeName: suggestedName };
-}
-
 export async function createTaskFromAction(input: {
   orgId: string;
   action: StructuredAiAction;
@@ -117,11 +89,31 @@ export async function createTaskFromAction(input: {
     ? new Date(`${input.action.dueDate}T00:00:00`)
     : null;
 
-  // Validate assignee against org members
-  const { assigneeId, assigneeName } = await resolveAssignee(
-    input.orgId,
-    input.action.assigneeName
-  );
+  // Resolve assignee against org members (local improvement: inline resolution)
+  let assigneeId = "";
+  let assigneeName = input.action.assigneeName || "";
+
+  if (assigneeName) {
+    try {
+      const usersSnap = await db
+        .collection("users")
+        .where("orgId", "==", input.orgId)
+        .get();
+
+      const normalizedAssignee = assigneeName.toLowerCase().trim();
+      const matched = usersSnap.docs.find((d) => {
+        const name = (d.data().displayName || "").toLowerCase().trim();
+        return name === normalizedAssignee || name.includes(normalizedAssignee) || normalizedAssignee.includes(name);
+      });
+
+      if (matched) {
+        assigneeId = matched.id;
+        assigneeName = matched.data().displayName || assigneeName;
+      }
+    } catch (e) {
+      console.warn("Failed to match assignee to org user:", e);
+    }
+  }
 
   await ref.set({
     id: ref.id,
@@ -142,81 +134,4 @@ export async function createTaskFromAction(input: {
   });
 
   return ref.id;
-}
-
-export async function updateTaskFromAction(
-  taskId: string,
-  action: StructuredAiAction,
-  extras?: Record<string, unknown>
-): Promise<void> {
-  const db = getAdminDb();
-  const updates: Record<string, unknown> = {
-    updatedAt: FieldValue.serverTimestamp(),
-    ...extras,
-  };
-
-  if (action.title) updates.title = action.title;
-  if (action.description) updates.description = action.description;
-  if (action.priority) updates.priority = action.priority;
-  if (action.assigneeName) updates.assigneeName = action.assigneeName;
-  if (action.labels?.length) updates.labels = action.labels;
-  if (action.dueDate) {
-    const due = new Date(`${action.dueDate}T00:00:00`);
-    if (!Number.isNaN(due.getTime())) updates.dueDate = due;
-  }
-
-  await db.collection("tasks").doc(taskId).update(updates);
-}
-
-export async function closeTask(taskId: string): Promise<void> {
-  const db = getAdminDb();
-  await db.collection("tasks").doc(taskId).update({
-    status: "completed",
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-}
-
-export async function createNotification(input: {
-  orgId: string;
-  userId: string;
-  title: string;
-  message: string;
-  type: "task_assigned" | "whatsapp_message" | "comment" | "ai_extraction" | "needs_review";
-  relatedId?: string;
-}) {
-  const db = getAdminDb();
-  const ref = db.collection("notifications").doc();
-  await ref.set({
-    id: ref.id,
-    orgId: input.orgId,
-    userId: input.userId,
-    title: input.title,
-    message: input.message,
-    type: input.type,
-    relatedId: input.relatedId || null,
-    read: false,
-    createdAt: new Date().toISOString(),
-  });
-}
-
-export async function notifyOrgAdmins(
-  orgId: string,
-  payload: Omit<Parameters<typeof createNotification>[0], "userId" | "orgId">
-) {
-  const db = getAdminDb();
-  const snap = await db
-    .collection("users")
-    .where("orgId", "==", orgId)
-    .where("role", "==", "admin")
-    .get();
-
-  await Promise.all(
-    snap.docs.map((d) =>
-      createNotification({
-        orgId,
-        userId: d.id,
-        ...payload,
-      })
-    )
-  );
 }

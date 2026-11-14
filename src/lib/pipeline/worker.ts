@@ -26,25 +26,6 @@ import type { AiExtractionOutcome, ProcessingQueueItem, StructuredAiAction } fro
 export const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
 /**
- * Load the organization's encrypted Gemini key (set in Settings) so each
- * tenant can use its own quota. Returns undefined when not configured.
- */
-async function getOrgGeminiKey(orgId: string): Promise<string | undefined> {
-  try {
-    const snap = await getAdminDb().collection("organizations").doc(orgId).get();
-    const encrypted = snap.data()?.geminiApiKey;
-    if (!encrypted || typeof encrypted !== "string") return undefined;
-    const key = decrypt(encrypted);
-    // A double-encrypted legacy value decrypts to another "iv:ciphertext"
-    // blob. Treat that as unusable rather than sending it to Gemini.
-    return key && !key.includes(":") ? key : undefined;
-  } catch (error) {
-    console.warn("Unable to load organization Gemini key:", error);
-    return undefined;
-  }
-}
-
-/**
  * Atomically claim a queue job using a Firestore transaction.
  * Returns the updated queue item if claimed, or null if already claimed/completed.
  */
@@ -94,6 +75,10 @@ async function claimQueueJob(queueId: string): Promise<{ queueItem: ProcessingQu
   });
 }
 
+/**
+ * Atomically claim a queue job and process it inline.
+ * Prefer inline processing — fire-and-forget self-fetch is unreliable on serverless.
+ */
 export async function processQueueJob(queueId: string): Promise<{
   ok: boolean;
   outcome?: AiExtractionOutcome;
@@ -160,13 +145,54 @@ export async function processQueueJob(queueId: string): Promise<{
     return { ok: true, outcome: "duplicate" };
   }
 
+  let maxAttemptsLimit = maxAttempts;
+  if (attempts > maxAttemptsLimit) {
+    await updateQueueItem(queueId, {
+      status: "dead",
+      lastError: "Maximum attempts exceeded",
+      completedAt: new Date().toISOString(),
+    });
+    await updateMessageStatus(message.id, "failed", {
+      error: "Maximum attempts exceeded",
+    });
+    await publishEvent({
+      orgId: message.orgId,
+      type: "processing_failed",
+      messageId: message.id,
+      meta: { error: "Maximum attempts exceeded", attempts, dead: true },
+    });
+    return { ok: false, error: "Maximum attempts exceeded" };
+  }
+
+  // Duplicate messages are persisted for audit but must never be re-processed.
+  if (message.status === "duplicate") {
+    await updateQueueItem(queueId, {
+      status: "completed",
+      completedAt: new Date().toISOString(),
+    });
+    await writeProcessingLog({
+      orgId: message.orgId,
+      messageId: message.id,
+      stage: "complete",
+      level: "info",
+      detail: "Duplicate message skipped",
+    });
+    return { ok: true, outcome: "duplicate" };
+  }
+
+  const attemptsCount = (queueItem.attempts || 0) + 1;
+  await updateQueueItem(queueId, {
+    status: "processing",
+    attempts: attemptsCount,
+    lockedAt: new Date().toISOString(),
+  });
   await updateMessageStatus(message.id, "processing");
   await writeProcessingLog({
     orgId: message.orgId,
     messageId: message.id,
     stage: "normalize",
     level: "info",
-    detail: `Processing attempt ${attempts}`,
+    detail: `Processing attempt ${attemptsCount}`,
   });
 
   const started = Date.now();
@@ -236,9 +262,20 @@ export async function processQueueJob(queueId: string): Promise<{
     let taskId: string | undefined;
     let contactId: string | undefined;
 
-    if (action.intent === "ignore" || confidenceRoute === "ignore") {
+    // 3-way classification:
+    // 1. Non-actionable: ignore / store without creating a task
+    if (
+      action.classification === "non_actionable" ||
+      action.intent === "ignore" ||
+      confidenceRoute === "ignore"
+    ) {
       outcome = "ignored";
-    } else if (confidenceRoute === "needs_review") {
+    }
+    // 2. Ambiguous: save for admin review, do not create task
+    else if (
+      action.classification === "ambiguous" ||
+      confidenceRoute === "needs_review"
+    ) {
       outcome = "needs_review";
       await notifyOrgAdmins(message.orgId, {
         title: "AI extraction needs review",
@@ -250,9 +287,11 @@ export async function processQueueJob(queueId: string): Promise<{
         orgId: message.orgId,
         type: "needs_review",
         messageId: message.id,
-        meta: { confidence: action.confidenceScore, intent: action.intent },
+        meta: { confidence: action.confidenceScore, intent: action.intent, classification: "ambiguous" },
       });
-    } else {
+    }
+    // 3. Actionable: automatically create or update task
+    else {
       const result = await applyAction(message.orgId, message.id, action, {
         phone: message.sender,
         name: message.senderName,
@@ -265,7 +304,7 @@ export async function processQueueJob(queueId: string): Promise<{
     await saveAiExtraction({
       orgId: message.orgId,
       messageId: message.id,
-      model: action.isFallback ? "heuristic-fallback" : "gemini-1.5-flash",
+      model: process.env.GEMINI_API_KEY ? "gemini-2.5-flash" : "heuristic-fallback",
       inputText: message.text,
       action,
       outcome,
@@ -328,7 +367,7 @@ export async function processQueueJob(queueId: string): Promise<{
         await saveAiExtraction({
           orgId: message.orgId,
           messageId: message.id,
-          model: action?.isFallback ? "heuristic-fallback" : "gemini-1.5-flash",
+          model: action?.isFallback ? "heuristic-fallback" : "gemini-2.5-flash",
           inputText: message.text || "",
           action: failedAction,
           outcome: "failed",
@@ -379,161 +418,6 @@ export async function processQueueJob(queueId: string): Promise<{
 
     return { ok: false, error: errMsg };
   }
-}
-
-async function applyAction(
-  orgId: string,
-  messageId: string,
-  action: StructuredAiAction,
-  contactDefaults?: { phone?: string; name?: string }
-): Promise<{ outcome: AiExtractionOutcome; taskId?: string; contactId?: string }> {
-  const { upsertContact } = await import("@/lib/pipeline/contact-actions");
-
-  // --- Contact-only intent ---
-  if (action.intent === "create_contact") {
-    const contactData = extractContactFields(action, contactDefaults);
-    if (contactData.name) {
-      const { contact } = await upsertContact({
-        orgId,
-        ...contactData,
-        sourceMessageId: messageId,
-      });
-      await publishEvent({
-        orgId,
-        type: "task_created", // reuse event type for now
-        messageId,
-        meta: { intent: "create_contact", contactId: contact.id },
-      });
-      return { outcome: "contact_created", contactId: contact.id };
-    }
-    return { outcome: "ignored" };
-  }
-
-  // --- Both contact + task ---
-  if (action.intent === "create_both") {
-    let contactId: string | undefined;
-    const contactData = extractContactFields(action, contactDefaults);
-    if (contactData.name) {
-      const { contact } = await upsertContact({
-        orgId,
-        ...contactData,
-        sourceMessageId: messageId,
-      });
-      contactId = contact.id;
-    }
-
-    const labels = [...(action.labels || [])];
-    const taskId = await createTaskFromAction({
-      orgId,
-      action: { ...action, labels },
-      createdBy: "system:whatsapp-pipeline",
-      source: "ai_extracted",
-      messageId,
-    });
-
-    await publishEvent({
-      orgId,
-      type: "task_created",
-      messageId,
-      taskId,
-      meta: { intent: "create_both", contactId },
-    });
-
-    await notifyOrgAdmins(orgId, {
-      title: "Contact & task created from WhatsApp",
-      message: action.title,
-      type: "ai_extraction",
-      relatedId: taskId,
-    });
-
-    return { outcome: "both_created", taskId, contactId };
-  }
-
-  // --- Existing task-based intents ---
-  const match = await findBestMatchingTask(orgId, action);
-
-  if (action.intent === "close_task") {
-    if (match) {
-      await closeTask(match.task.id);
-      await publishEvent({
-        orgId,
-        type: "task_completed",
-        messageId,
-        taskId: match.task.id,
-        meta: { via: "whatsapp_ai", similarity: match.score },
-      });
-      return { outcome: "updated_existing", taskId: match.task.id };
-    }
-    // Fall through to create if we can't find what to close
-  }
-
-  if (action.intent === "update_task" && match) {
-    await updateTaskFromAction(match.task.id, action);
-    await publishEvent({
-      orgId,
-      type: "task_updated",
-      messageId,
-      taskId: match.task.id,
-      meta: { similarity: match.score },
-    });
-    return { outcome: "updated_existing", taskId: match.task.id };
-  }
-
-  // High similarity → update instead of creating a duplicate task
-  if (match && match.score >= 0.9 && (action.intent === "create_task" || action.intent === "update_task")) {
-    await updateTaskFromAction(match.task.id, action);
-    await publishEvent({
-      orgId,
-      type: "task_updated",
-      messageId,
-      taskId: match.task.id,
-      meta: { similarity: match.score, reason: "auto_link" },
-    });
-    return { outcome: "updated_existing", taskId: match.task.id };
-  }
-
-  if (
-    action.intent === "create_task" ||
-    action.intent === "schedule_meeting" ||
-    action.intent === "create_note" ||
-    action.intent === "ask_question" ||
-    action.intent === "save_reminder" ||
-    (action.intent === "update_task" && !match) ||
-    (action.intent === "close_task" && !match)
-  ) {
-    const labels = [...(action.labels || [])];
-    if (action.intent === "schedule_meeting" && !labels.includes("meeting")) labels.push("meeting");
-    if (action.intent === "create_note" && !labels.includes("note")) labels.push("note");
-    if (action.intent === "ask_question" && !labels.includes("question")) labels.push("question");
-    if (action.intent === "save_reminder" && !labels.includes("reminder")) labels.push("reminder");
-
-    const taskId = await createTaskFromAction({
-      orgId,
-      action: { ...action, labels },
-      createdBy: "system:whatsapp-pipeline",
-      source: "ai_extracted",
-      messageId,
-    });
-
-    await publishEvent({
-      orgId,
-      type: "task_created",
-      messageId,
-      taskId,
-      meta: { intent: action.intent },
-    });
-
-    await notifyOrgAdmins(orgId, {
-      title: "Task created from WhatsApp",
-      message: action.title,
-      type: "ai_extraction",
-      relatedId: taskId,
-    });
-
-    return { outcome: "auto_created", taskId };
-  }
-
-  return { outcome: "ignored" };
 }
 
 /** Extract contact fields from the raw AI action (Gemini returns them as extra fields) */
@@ -593,38 +477,34 @@ async function finalize(
 }
 
 /**
- * Enqueue async worker processing via HTTP call.
- * Awaited so Vercel doesn't kill the process before the request is sent.
- * Failures are logged but do not throw — the cron redrive recovers pending jobs.
+ * Run the AI worker for a queue item.
+ * Prefer inline processing — fire-and-forget self-fetch is unreliable on serverless.
  */
-export async function enqueueWorkerProcessing(
-  queueId: string,
-  origin: string
-): Promise<boolean> {
-  const secret = process.env.PIPELINE_WORKER_SECRET;
-  if (!secret) {
-    console.error("PIPELINE_WORKER_SECRET is not set; cannot enqueue worker processing.");
-    return false;
+export async function runWorkerForQueue(queueId: string): Promise<void> {
+  try {
+    const result = await processQueueJob(queueId);
+    if (!result.ok) {
+      console.error("Worker finished with error:", result.error);
+    }
+  } catch (err) {
+    console.error("Worker crashed:", err);
   }
+}
+
+/** @deprecated Use runWorkerForQueue — kept for manual/cron HTTP triggers */
+export function enqueueWorkerProcessing(queueId: string, origin: string) {
+  const secret = process.env.PIPELINE_WORKER_SECRET || "dev-pipeline-secret";
   const url = `${origin}/api/workers/process-message`;
 
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${secret}`,
-      },
-      body: JSON.stringify({ queueId }),
-    });
-    if (!res.ok) {
-      console.error(`Worker enqueue returned ${res.status} for queueId=${queueId}`);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    // Non-fatal: the cron redrive will pick up pending jobs
-    console.error("Failed to enqueue worker:", err);
-    return false;
-  }
+  void fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${secret}`,
+    },
+    body: JSON.stringify({ queueId }),
+  }).catch((err) => {
+    console.error("Failed to enqueue worker via HTTP, running inline:", err);
+    void runWorkerForQueue(queueId);
+  });
 }
